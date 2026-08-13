@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Env files
+.env
+database.env
+*.env.local
+
+# Local SQLite db
+*.db
+
+# Frontend (once added)
+node_modules/
+dist/
+.vite/
