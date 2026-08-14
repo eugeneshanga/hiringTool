@@ -46,6 +46,8 @@ def create_interview():
     meeting_type = data.get('meeting_type')
     if not stage_name or not meeting_type:
         return jsonify({"error": "stage_name and meeting_type are required"}), 400
+    if meeting_type not in Interview.VALID_MEETING_TYPES:
+        return jsonify({"error": f"meeting_type must be one of {Interview.VALID_MEETING_TYPES}"}), 400
 
     try:
         start = parse_datetime(data.get('scheduled_start'), 'scheduled_start')
@@ -102,6 +104,9 @@ def update_interview(interview_id):
     if 'job_id' in data and data['job_id'] is not None and not Job.query.get(data['job_id']):
         return jsonify({"error": f"no job with id {data['job_id']}"}), 400
 
+    if 'meeting_type' in data and data['meeting_type'] not in Interview.VALID_MEETING_TYPES:
+        return jsonify({"error": f"meeting_type must be one of {Interview.VALID_MEETING_TYPES}"}), 400
+
     if 'capacity' in data:
         capacity = data['capacity']
         if not isinstance(capacity, int) or capacity < 1:
@@ -144,6 +149,10 @@ def enroll_candidate(interview_id):
         return jsonify({"error": "this interview is already at capacity"}), 400
 
     interview.candidates.append(candidate)
+    # Enrolling in any interview session moves the candidate into the Interview
+    # stage of the pipeline. This always overwrites their current stage - manual
+    # stage changes on the Candidates page remain available as an override.
+    candidate.stage = 'Interview'
     db.session.commit()
     return jsonify(interview.to_dict()), 200
 

@@ -5,6 +5,9 @@ import { Layout } from './components/Layout'
 import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { JobsPage } from './pages/JobsPage'
+import { JobDetailLayout } from './pages/JobDetailLayout'
+import { JobDetailsPage } from './pages/JobDetailsPage'
+import { JobMeetingStagesPage } from './pages/JobMeetingStagesPage'
 import { CandidatesPage } from './pages/CandidatesPage'
 
 function App() {
@@ -32,6 +35,19 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/jobs/:jobId"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <JobDetailLayout />
+              </Layout>
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<JobDetailsPage />} />
+          <Route path="meeting-stages" element={<JobMeetingStagesPage />} />
+        </Route>
         <Route
           path="/candidates"
           element={

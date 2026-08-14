@@ -4,7 +4,30 @@ from models import db, Job
 
 jobs_bp = Blueprint('jobs', __name__)
 
-VALID_STATUSES = ('Open', 'Closed', 'Draft')
+
+def validate_job_fields(data, partial=False):
+    """Returns an error message string, or None if the payload is valid."""
+    if 'status' in data and data['status'] not in Job.VALID_STATUSES:
+        return f"status must be one of {Job.VALID_STATUSES}"
+
+    if 'job_type' in data:
+        job_type = data['job_type']
+        if not isinstance(job_type, list) or any(t not in Job.VALID_JOB_TYPES for t in job_type):
+            return f"job_type must be a list of values from {Job.VALID_JOB_TYPES}"
+
+    if 'salary_period' in data and data['salary_period'] is not None:
+        if data['salary_period'] not in Job.VALID_SALARY_PERIODS:
+            return f"salary_period must be one of {Job.VALID_SALARY_PERIODS}"
+
+    min_salary = data.get('min_salary')
+    max_salary = data.get('max_salary')
+    if min_salary is not None and max_salary is not None and min_salary > max_salary:
+        return "min_salary cannot be greater than max_salary"
+
+    if 'highlights' in data and not isinstance(data['highlights'], list):
+        return "highlights must be a list of strings"
+
+    return None
 
 
 @jobs_bp.route('/api/jobs', methods=['GET'])
@@ -15,6 +38,10 @@ def get_jobs():
     status = request.args.get('status')
     if status:
         query = query.filter_by(status=status)
+
+    search = request.args.get('search')
+    if search:
+        query = query.filter(Job.title.ilike(f'%{search}%'))
 
     jobs = query.order_by(Job.created_at.desc()).all()
     return jsonify([j.to_dict() for j in jobs]), 200
@@ -35,15 +62,22 @@ def create_job():
     if not title:
         return jsonify({"error": "title is required"}), 400
 
-    status = data.get('status', 'Open')
-    if status not in VALID_STATUSES:
-        return jsonify({"error": f"status must be one of {VALID_STATUSES}"}), 400
+    error = validate_job_fields(data)
+    if error:
+        return jsonify({"error": error}), 400
 
     job = Job(
         title=title,
-        department=data.get('department'),
-        location=data.get('location'),
-        status=status,
+        status=data.get('status', 'Draft'),
+        job_type=data.get('job_type', []),
+        city=data.get('city'),
+        state=data.get('state'),
+        postal_code=data.get('postal_code'),
+        country=data.get('country', 'USA'),
+        min_salary=data.get('min_salary'),
+        max_salary=data.get('max_salary'),
+        salary_period=data.get('salary_period'),
+        highlights=data.get('highlights', []),
         description=data.get('description'),
     )
     db.session.add(job)
@@ -57,10 +91,14 @@ def update_job(job_id):
     job = Job.query.get_or_404(job_id)
     data = request.get_json(silent=True) or {}
 
-    if 'status' in data and data['status'] not in VALID_STATUSES:
-        return jsonify({"error": f"status must be one of {VALID_STATUSES}"}), 400
+    error = validate_job_fields(data, partial=True)
+    if error:
+        return jsonify({"error": error}), 400
 
-    for field in ('title', 'department', 'location', 'status', 'description'):
+    for field in (
+        'title', 'status', 'job_type', 'city', 'state', 'postal_code', 'country',
+        'min_salary', 'max_salary', 'salary_period', 'highlights', 'description',
+    ):
         if field in data:
             setattr(job, field, data[field])
 

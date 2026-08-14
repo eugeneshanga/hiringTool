@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
-import type { Candidate, Interview, Job } from '../api/types'
+import type { Candidate, Interview, Job, MeetingType } from '../api/types'
 
+const MEETING_TYPES: MeetingType[] = ['Interview', 'Orientation', 'Other']
 const timeZoneLabel = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 function formatDate(iso: string) {
@@ -39,7 +40,7 @@ export function HomePage() {
   const [enrollSelection, setEnrollSelection] = useState<Record<number, string>>({})
 
   const [stageName, setStageName] = useState('')
-  const [meetingType, setMeetingType] = useState('')
+  const [meetingType, setMeetingType] = useState<MeetingType | ''>('')
   const [jobId, setJobId] = useState('')
   const [date, setDate] = useState('')
   const [startTime, setStartTime] = useState('09:00')
@@ -71,11 +72,6 @@ export function HomePage() {
     load()
   }, [])
 
-  const meetingTypes = useMemo(
-    () => Array.from(new Set(interviews.map((i) => i.meeting_type))).sort(),
-    [interviews],
-  )
-
   const visibleInterviews = useMemo(
     () => (typeFilter ? interviews.filter((i) => i.meeting_type === typeFilter) : interviews),
     [interviews, typeFilter],
@@ -83,7 +79,7 @@ export function HomePage() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
-    if (!date) return
+    if (!date || !meetingType) return
     setSubmitting(true)
     setError(null)
     try {
@@ -153,7 +149,7 @@ export function HomePage() {
         <div className="page-header-actions">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">All</option>
-            {meetingTypes.map((t) => (
+            {MEETING_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -186,12 +182,20 @@ export function HomePage() {
             </label>
             <label>
               Meeting type
-              <input
+              <select
                 value={meetingType}
-                onChange={(e) => setMeetingType(e.target.value)}
-                placeholder="In-person orientation"
+                onChange={(e) => setMeetingType(e.target.value as MeetingType)}
                 required
-              />
+              >
+                <option value="" disabled>
+                  Select a type…
+                </option>
+                {MEETING_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Job (optional)

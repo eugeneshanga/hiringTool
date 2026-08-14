@@ -286,3 +286,144 @@ button:disabled {
   text-align: center;
   color: var(--text-subtle);
 }
+
+/* Jobs list */
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: var(--bg);
+}
+
+.chip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.chip-row {
+  font-size: 0.85rem;
+  color: var(--text-subtle);
+}
+
+.chip {
+  display: inline-block;
+  background: var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.chip.removable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chip.removable button {
+  background: none;
+  color: var(--text-subtle);
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.chip.removable button:hover {
+  background: none;
+  color: var(--danger);
+}
+
+/* Job detail */
+.job-detail-header {
+  margin-bottom: 1.5rem;
+}
+
+.job-detail-header h1 {
+  margin-top: 0.4rem;
+}
+
+.job-detail-body {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.job-detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.sidebar-group-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-subtle);
+  font-weight: 600;
+  margin: 0.5rem 0 0.3rem;
+}
+
+.job-detail-sidebar a {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.job-detail-sidebar a.active {
+  background: var(--bg);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.job-detail-sidebar a:hover {
+  background: var(--bg);
+}
+
+.job-detail-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-header h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.checkbox-label input {
+  width: auto;
+}

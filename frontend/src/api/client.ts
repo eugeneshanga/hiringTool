@@ -1,4 +1,4 @@
-import type { Candidate, Interview, Job, User } from './types'
+import type { Candidate, Interview, Job, MeetingStageTemplate, User } from './types'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:5050'
 const TOKEN_KEY = 'hiringtool_token'
@@ -50,15 +50,29 @@ export const api = {
 
   me: () => request<User>('/api/auth/me'),
 
-  listJobs: (params?: { status?: string }) => {
-    const qs = params?.status ? `?status=${encodeURIComponent(params.status)}` : ''
-    return request<Job[]>(`/api/jobs${qs}`)
+  listJobs: (params?: { status?: string; search?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.search) qs.set('search', params.search)
+    const s = qs.toString()
+    return request<Job[]>(`/api/jobs${s ? `?${s}` : ''}`)
   },
+  getJob: (id: number) => request<Job>(`/api/jobs/${id}`),
   createJob: (data: Partial<Job>) =>
     request<Job>('/api/jobs', { method: 'POST', body: JSON.stringify(data) }),
   updateJob: (id: number, data: Partial<Job>) =>
     request<Job>(`/api/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteJob: (id: number) => request<void>(`/api/jobs/${id}`, { method: 'DELETE' }),
+
+  listMeetingStages: (jobId: number) =>
+    request<MeetingStageTemplate[]>(`/api/jobs/${jobId}/meeting-stages`),
+  createMeetingStage: (jobId: number, data: { meeting_type: string; stage_name: string }) =>
+    request<MeetingStageTemplate>(`/api/jobs/${jobId}/meeting-stages`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  deleteMeetingStage: (jobId: number, templateId: number) =>
+    request<void>(`/api/jobs/${jobId}/meeting-stages/${templateId}`, { method: 'DELETE' }),
 
   listCandidates: (params?: { search?: string; stage?: string; job_id?: number }) => {
     const qs = new URLSearchParams()

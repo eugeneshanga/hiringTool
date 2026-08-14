@@ -8,6 +8,7 @@ from routes.candidates import candidates_bp
 from routes.jobs import jobs_bp
 from routes.auth import auth_bp
 from routes.interviews import interviews_bp
+from routes.meeting_stages import meeting_stages_bp
 
 
 def create_app():
@@ -22,6 +23,7 @@ def create_app():
     app.register_blueprint(jobs_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(interviews_bp)
+    app.register_blueprint(meeting_stages_bp)
 
     @app.route('/api/health', methods=['GET'])
     def health_check():
