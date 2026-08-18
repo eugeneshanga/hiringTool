@@ -101,18 +101,32 @@ defaults documented above.
 
 ## Features so far
 
-- **Auth** — JWT login, plus self-service registration (`/register` on the
-  frontend) for `recruiter` accounts. `admin`/`interviewer` roles are only
-  granted via `flask create-user --role`.
+- **Auth (recruiter side)** — JWT login, plus self-service registration
+  (`/register` on the frontend) for `recruiter` accounts. `admin`/
+  `interviewer` roles are only granted via `flask create-user --role`.
+- **Auth (candidate side)** — a separate login identity (`CandidateAccount`,
+  distinct from the recruiter `User` model) at `/apply/register` and
+  `/apply/login`, landing on a bare `/apply` home page once signed in. This
+  is the first slice of flipping the app to also work from a prospective
+  candidate's point of view — browsing/applying to jobs isn't built yet.
+  Candidate and recruiter tokens are both JWTs but carry an `account_type`
+  claim (`user` vs `candidate`) that `app.py`'s `token_verification_loader`
+  enforces, so one can never be used as the other — see the comment there,
+  since recruiter routes don't do their own role checks yet (next bullet).
 - **Jobs** — postings with type/location/salary/highlights/description,
-  status (Published/Draft/Closed), a numbered/reorderable **meeting stage**
-  list per job (e.g. a "Virtual interview" stage named "CHHA" followed by an
-  "In-person orientation" stage), and a per-job **pre-screening question**
-  bank.
+  status (Published/Draft/Closed), and a numbered/reorderable **meeting
+  stage** list per job (e.g. a "Virtual interview" stage named "CHHA"
+  followed by an "In-person orientation" stage).
 - **Meeting stage editor** — clicking a stage (from the job's stage list or
   from an upcoming session on the Home page) opens a dedicated editor with
-  its own sidebar: rename/retype/re-time the stage, and manage its scheduled
-  **sessions** (add, delete, enroll/unenroll candidates, capacity limits).
+  its own sidebar: rename/retype the stage, a **Pre-screen** tab (that
+  stage's own qualifying questions — plain or multiple-choice with which
+  answers qualify/disqualify a candidate), and a **Schedule** tab for
+  interview-length/scheduling-window settings plus managing its scheduled
+  **sessions** (add, delete, enroll/unenroll candidates, capacity limits). A
+  header "Schedule interview" button covers the common case in one modal:
+  search or add a candidate, then pick an open slot off a small calendar or
+  spin up a custom one-off time.
 - **Candidates** — pipeline stage (Applied → Interview → Offer → Hired /
   Rejected), search/filtering/CSV export, and a full candidate detail page:
   contact info, resume upload, per-stage scheduling + status + notes +
@@ -127,7 +141,15 @@ defaults documented above.
 
 ## Known gaps
 
-- No role-based permission checks yet — any logged-in user can do anything.
+- No role-based permission checks *within* the recruiter side yet — any
+  logged-in `User` (admin/recruiter/interviewer alike) can do anything on
+  recruiter routes. (Candidate vs. recruiter is enforced, per the Auth
+  bullet above — this gap is about the three recruiter roles not being
+  differentiated from each other.)
+- Candidate accounts aren't linked to anything yet — a `CandidateAccount`
+  (their login) and a `Candidate` (a specific job application recruiters
+  manage) are still two unrelated tables. Wiring "apply to a job" together
+  is the next piece of the candidate-facing side.
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
 - Resume/onboarding-document storage is local disk under `backend/uploads/`

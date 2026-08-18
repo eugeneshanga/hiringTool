@@ -22,6 +22,19 @@ export interface User {
   created_at: string
 }
 
+// A prospective candidate's own login — separate identity from Candidate,
+// which is the per-job application/pipeline record recruiters manage.
+export interface CandidateAccount {
+  id: number
+  first_name: string
+  last_name: string
+  name: string
+  phone: string | null
+  email: string
+  is_active: boolean
+  created_at: string
+}
+
 export interface MeetingStageTemplate {
   id: number
   job_id: number

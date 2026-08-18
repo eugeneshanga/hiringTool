@@ -28,7 +28,7 @@ def register():
     db.session.add(user)
     db.session.commit()
 
-    token = create_access_token(identity=str(user.id))
+    token = create_access_token(identity=str(user.id), additional_claims={'account_type': 'user'})
     return jsonify({"access_token": token, "user": user.to_dict()}), 201
 
 
@@ -48,7 +48,7 @@ def login():
     if not user.is_active:
         return jsonify({"error": "this account has been deactivated"}), 401
 
-    token = create_access_token(identity=str(user.id))
+    token = create_access_token(identity=str(user.id), additional_claims={'account_type': 'user'})
     return jsonify({"access_token": token, "user": user.to_dict()}), 200
 
 

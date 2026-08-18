@@ -51,6 +51,45 @@ class User(db.Model):
         }
 
 
+class CandidateAccount(db.Model):
+    """A prospective candidate's own login — distinct from Candidate, which is
+    the per-job application/pipeline record recruiters manage. One person can
+    hold a single CandidateAccount and (eventually) apply to many jobs; linking
+    an account to specific Candidate rows is future work, not modeled yet."""
+    __tablename__ = 'candidate_accounts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    first_name = db.Column(db.String(120), nullable=False)
+    last_name = db.Column(db.String(120), nullable=False)
+    phone = db.Column(db.String(20))
+    email = db.Column(db.String(120), nullable=False, unique=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    @property
+    def name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "name": self.name,
+            "phone": self.phone,
+            "email": self.email,
+            "is_active": self.is_active,
+            "created_at": iso_utc(self.created_at),
+        }
+
+
 class Job(db.Model):
     __tablename__ = 'jobs'
 
