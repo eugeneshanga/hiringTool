@@ -17,3 +17,10 @@ class Config:
 
     # Used to sign JWTs. Overridden via env var in any non-local environment.
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'dev-secret-change-me')
+
+    # Resumes and onboarding documents get written here (dev only — a real
+    # deployment should point this at object storage instead).
+    UPLOAD_FOLDER = os.environ.get(
+        'UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+    )
+    MAX_CONTENT_LENGTH = 15 * 1024 * 1024  # 15MB per upload

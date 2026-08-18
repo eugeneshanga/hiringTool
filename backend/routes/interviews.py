@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
@@ -9,9 +9,16 @@ interviews_bp = Blueprint('interviews', __name__)
 
 def parse_datetime(value, field_name):
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except (TypeError, ValueError):
         raise ValueError(f"{field_name} must be an ISO-8601 datetime string")
+    # Store as naive UTC, same as every other timestamp in this app — mixing
+    # naive and tz-aware datetimes in one column is how times sent with a 'Z'
+    # (e.g. from the frontend's toISOString()) came back shifted by the
+    # server's local offset.
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 @interviews_bp.route('/api/interviews', methods=['GET'])
