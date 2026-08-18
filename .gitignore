@@ -12,6 +12,9 @@ database.env
 # Local SQLite db
 *.db
 
+# Uploaded resumes / onboarding documents (dev-local file storage)
+backend/uploads/
+
 # Frontend (once added)
 node_modules/
 dist/

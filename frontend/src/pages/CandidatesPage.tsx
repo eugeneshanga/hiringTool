@@ -1,14 +1,31 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { api, ApiError } from '../api/client'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { api, ApiError, saveBlob } from '../api/client'
 import type { Candidate, Job, Stage } from '../api/types'
 
 const STAGES: Stage[] = ['Applied', 'Interview', 'Offer', 'Hired', 'Rejected']
 
+function formatDate(iso: string | null) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
 export function CandidatesPage() {
+  const navigate = useNavigate()
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -22,7 +39,7 @@ export function CandidatesPage() {
   async function load() {
     setLoading(true)
     setError(null)
-    try {1
+    try {
       const [candidateData, jobData] = await Promise.all([
         api.listCandidates({
           search: search || undefined,
@@ -44,11 +61,6 @@ export function CandidatesPage() {
     return () => clearTimeout(timeout)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, stageFilter])
-
-  function jobTitle(id: number | null) {
-    if (id === null) return '—'
-    return jobs.find((j) => j.id === id)?.title ?? `#${id}`
-  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
@@ -74,15 +86,6 @@ export function CandidatesPage() {
     }
   }
 
-  async function handleStageChange(candidate: Candidate, stage: Stage) {
-    try {
-      await api.updateCandidate(candidate.id, { stage })
-      await load()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update candidate')
-    }
-  }
-
   async function handleDelete(candidate: Candidate) {
     if (!confirm(`Delete "${candidate.name}"? This cannot be undone.`)) return
     try {
@@ -93,115 +96,156 @@ export function CandidatesPage() {
     }
   }
 
+  const rows = useMemo(
+    () =>
+      candidates.map((c) => ({
+        candidate: c,
+        stageLabel: c.current_stage?.stage_name ?? c.stage,
+        statusLabel: c.current_stage?.status ?? c.status,
+        scheduledLabel: c.current_stage?.scheduled_at ?? null,
+      })),
+    [candidates],
+  )
+
+  function handleExport() {
+    const header = ['Candidate', 'Job', 'Stage', 'Updated', 'Scheduled', 'Interviewer', 'Status']
+    const lines = rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel }) =>
+      [c.name, c.job_title ?? '', stageLabel, formatDate(c.updated_at), formatDate(scheduledLabel), c.interviewer ?? '', statusLabel]
+        .map((v) => csvCell(String(v)))
+        .join(','),
+    )
+    const csv = [header.map(csvCell).join(','), ...lines].join('\n')
+    saveBlob(new Blob([csv], { type: 'text/csv' }), 'candidates.csv')
+  }
+
   return (
     <div className="page">
       <div className="page-header">
         <h1>Candidates</h1>
-        <div className="page-header-actions">
-          <input
-            placeholder="Search name or email…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
-            <option value="">All stages</option>
-            {STAGES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <button onClick={() => setShowForm((v) => !v)}>
-            {showForm ? 'Cancel' : 'New candidate'}
-          </button>
-        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
-      {showForm && (
-        <form className="card form" onSubmit={handleCreate}>
-          <div className="form-row">
+      <div className="card">
+        <div className="candidates-toolbar">
+          <button
+            type="button"
+            className="button-secondary"
+            aria-pressed={showFilters}
+            onClick={() => setShowFilters((v) => !v)}
+          >
+            ⏷ Filters
+          </button>
+          <input
+            className="candidates-search"
+            placeholder="Search name/email"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="candidates-toolbar-spacer" />
+          <button type="button" className="button-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? 'Cancel' : 'New candidate'}
+          </button>
+          <button type="button" className="button-secondary" onClick={handleExport} disabled={rows.length === 0}>
+            Export
+          </button>
+        </div>
+
+        {showFilters && (
+          <div className="form-row candidates-filters">
             <label>
-              Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </label>
-            <label>
-              Email
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </label>
-            <label>
-              Phone
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </label>
-            <label>
-              Job
-              <select value={jobId} onChange={(e) => setJobId(e.target.value)}>
-                <option value="">Unassigned</option>
-                {jobs.map((j) => (
-                  <option key={j.id} value={j.id}>
-                    {j.title}
+              Stage
+              <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
+                <option value="">All stages</option>
+                {STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
                   </option>
                 ))}
               </select>
             </label>
           </div>
-          <button type="submit" disabled={submitting}>
-            {submitting ? 'Creating…' : 'Create candidate'}
-          </button>
-        </form>
-      )}
+        )}
 
-      {loading ? (
-        <p className="subtle">Loading…</p>
-      ) : candidates.length === 0 ? (
-        <p className="subtle">No candidates match.</p>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Job</th>
-              <th>Stage</th>
-              <th>Interviewer</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {candidates.map((c) => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td>{c.email}</td>
-                <td>{jobTitle(c.job_id)}</td>
-                <td>
-                  <select
-                    value={c.stage}
-                    onChange={(e) => handleStageChange(c, e.target.value as Stage)}
-                  >
-                    {STAGES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>{c.interviewer ?? '—'}</td>
-                <td>
-                  <button className="link-button danger" onClick={() => handleDelete(c)}>
-                    Delete
-                  </button>
-                </td>
+        {showForm && (
+          <form className="form candidates-create-form" onSubmit={handleCreate}>
+            <div className="form-row">
+              <label>
+                Name
+                <input value={name} onChange={(e) => setName(e.target.value)} required />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Phone
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </label>
+              <label>
+                Job
+                <select value={jobId} onChange={(e) => setJobId(e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {jobs.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <button type="submit" disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create candidate'}
+            </button>
+          </form>
+        )}
+
+        {loading ? (
+          <p className="subtle">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="subtle">No candidates match.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Candidate</th>
+                <th>Job</th>
+                <th>Stage</th>
+                <th>Updated</th>
+                <th>Scheduled</th>
+                <th>Interviewer</th>
+                <th>Status</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel }) => (
+                <tr key={c.id} className="clickable-row" onClick={() => navigate(`/candidates/${c.id}`)}>
+                  <td>{c.name}</td>
+                  <td>{c.job_title ?? '—'}</td>
+                  <td>{stageLabel}</td>
+                  <td>{formatDate(c.updated_at)}</td>
+                  <td>{formatDate(scheduledLabel)}</td>
+                  <td>{c.interviewer ?? '—'}</td>
+                  <td>
+                    <strong>{statusLabel}</strong>
+                  </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button className="link-button danger" onClick={() => handleDelete(c)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }

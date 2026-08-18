@@ -2,6 +2,7 @@ import { useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import type { JobStatus, JobType, SalaryPeriod } from '../api/types'
+import { useSavedFlash } from '../hooks/useSavedFlash'
 import { useJobDetailContext } from './JobDetailLayout'
 
 const STATUSES: JobStatus[] = ['Published', 'Draft', 'Closed']
@@ -15,6 +16,7 @@ export function JobDetailsPage() {
 
   const [status, setStatus] = useState<JobStatus>(job.status)
   const [savingStatus, setSavingStatus] = useState(false)
+  const statusSaved = useSavedFlash()
 
   const [jobType, setJobType] = useState<JobType[]>(job.job_type)
   const [city, setCity] = useState(job.city ?? '')
@@ -28,6 +30,7 @@ export function JobDetailsPage() {
   const [highlightInput, setHighlightInput] = useState('')
   const [description, setDescription] = useState(job.description ?? '')
   const [savingDetails, setSavingDetails] = useState(false)
+  const detailsSaved = useSavedFlash()
 
   async function handleStatusSave() {
     setSavingStatus(true)
@@ -35,6 +38,7 @@ export function JobDetailsPage() {
     try {
       await api.updateJob(job.id, { status })
       await reloadJob()
+      statusSaved.flash()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to update status')
     } finally {
@@ -78,6 +82,7 @@ export function JobDetailsPage() {
         description: description || null,
       })
       await reloadJob()
+      detailsSaved.flash()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to save job details')
     } finally {
@@ -102,9 +107,12 @@ export function JobDetailsPage() {
       <div className="card section">
         <div className="section-header">
           <h2>Job status</h2>
-          <button onClick={handleStatusSave} disabled={savingStatus || status === job.status}>
-            {savingStatus ? 'Saving…' : 'Save'}
-          </button>
+          <div className="save-control">
+            <button onClick={handleStatusSave} disabled={savingStatus || status === job.status}>
+              {savingStatus ? 'Saving…' : 'Save'}
+            </button>
+            {statusSaved.saved && <span className="save-confirmation">✓ Saved</span>}
+          </div>
         </div>
         <label>
           Status
@@ -121,9 +129,12 @@ export function JobDetailsPage() {
       <form className="card section" onSubmit={handleDetailsSave}>
         <div className="section-header">
           <h2>Job details</h2>
-          <button type="submit" disabled={savingDetails}>
-            {savingDetails ? 'Saving…' : 'Save'}
-          </button>
+          <div className="save-control">
+            <button type="submit" disabled={savingDetails}>
+              {savingDetails ? 'Saving…' : 'Save'}
+            </button>
+            {detailsSaved.saved && <span className="save-confirmation">✓ Saved</span>}
+          </div>
         </div>
 
         <label>Job type (select all that apply)</label>

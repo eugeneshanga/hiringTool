@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import type { Candidate, Interview, Job, MeetingType } from '../api/types'
 
@@ -29,6 +30,7 @@ function toLocalInputValue(date: Date) {
 }
 
 export function HomePage() {
+  const navigate = useNavigate()
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -38,6 +40,7 @@ export function HomePage() {
   const [showForm, setShowForm] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [enrollSelection, setEnrollSelection] = useState<Record<number, string>>({})
+  const [resolvingStageFor, setResolvingStageFor] = useState<number | null>(null)
 
   const [stageName, setStageName] = useState('')
   const [meetingType, setMeetingType] = useState<MeetingType | ''>('')
@@ -137,6 +140,28 @@ export function HomePage() {
       await load()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete interview')
+    }
+  }
+
+  async function handleRowClick(interview: Interview) {
+    if (!interview.job_id) {
+      setError("This session isn't tied to a job, so it has no meeting stage to open.")
+      return
+    }
+    setResolvingStageFor(interview.id)
+    setError(null)
+    try {
+      const templates = await api.listMeetingStages(interview.job_id)
+      const match = templates.find((t) => t.stage_name === interview.stage_name)
+      if (!match) {
+        setError('No matching meeting stage was found for this session — it may have been renamed or removed.')
+        return
+      }
+      navigate(`/jobs/${interview.job_id}/meeting-stages/${match.id}`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to open the stage editor')
+    } finally {
+      setResolvingStageFor(null)
     }
   }
 
@@ -271,7 +296,11 @@ export function HomePage() {
               const isExpanded = expandedId === interview.id
               return (
                 <Fragment key={interview.id}>
-                  <tr>
+                  <tr
+                    className="clickable-row"
+                    style={resolvingStageFor === interview.id ? { opacity: 0.6 } : undefined}
+                    onClick={() => handleRowClick(interview)}
+                  >
                     <td>{formatDate(interview.scheduled_start)}</td>
                     <td>{formatTimeRange(interview.scheduled_start, interview.scheduled_end)}</td>
                     <td>
@@ -279,7 +308,7 @@ export function HomePage() {
                       {interview.job_title && <div className="subtle">{interview.job_title}</div>}
                     </td>
                     <td>{interview.meeting_type}</td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <button
                         className="link-button"
                         onClick={() => setExpandedId(isExpanded ? null : interview.id)}
@@ -287,7 +316,7 @@ export function HomePage() {
                         {interview.scheduled_count}/{interview.capacity}
                       </button>
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <button className="link-button danger" onClick={() => handleDelete(interview)}>
                         Delete
                       </button>
