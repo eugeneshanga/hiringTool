@@ -148,6 +148,12 @@ export function HomePage() {
       setError("This session isn't tied to a job, so it has no meeting stage to open.")
       return
     }
+    // The FK is authoritative when present — no need to look anything up.
+    if (interview.meeting_stage_template_id) {
+      navigate(`/jobs/${interview.job_id}/meeting-stages/${interview.meeting_stage_template_id}`)
+      return
+    }
+    // Fall back to matching by name for sessions created before the FK existed.
     setResolvingStageFor(interview.id)
     setError(null)
     try {

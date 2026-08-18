@@ -167,6 +167,13 @@ class Interview(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.Integer, db.ForeignKey('jobs.id'), nullable=True)
+    # Nullable: an interview not tied to a job (job_id is None) can't be tied to
+    # one of that job's stages either. stage_name stays the source of truth for
+    # display and for ad-hoc interviews with no template; this FK is the real
+    # link back to the template when there is one, instead of matching by name.
+    meeting_stage_template_id = db.Column(
+        db.Integer, db.ForeignKey('meeting_stage_templates.id'), nullable=True
+    )
     stage_name = db.Column(db.String(100), nullable=False)  # e.g. Orientation, Technical Interview, Onsite
     meeting_type = db.Column(db.String(50), nullable=False)  # Interview, Orientation, or Other
     location = db.Column(db.String(255))  # room, address, or meeting link
@@ -178,6 +185,7 @@ class Interview(db.Model):
     VALID_MEETING_TYPES = ('Interview', 'Orientation', 'Other')
 
     job = db.relationship('Job', backref='interviews')
+    meeting_stage_template = db.relationship('MeetingStageTemplate')
     candidates = db.relationship('Candidate', secondary=interview_candidates, backref='interviews')
 
     def to_dict(self):
@@ -185,6 +193,7 @@ class Interview(db.Model):
             "id": self.id,
             "job_id": self.job_id,
             "job_title": self.job.title if self.job else None,
+            "meeting_stage_template_id": self.meeting_stage_template_id,
             "stage_name": self.stage_name,
             "meeting_type": self.meeting_type,
             "location": self.location,

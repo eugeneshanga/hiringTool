@@ -81,8 +81,14 @@ export function StageSchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.id, template.id])
 
+  // Prefer the real FK; fall back to a stage_name match only for sessions
+  // created before it existed (or ad-hoc ones with no template at all).
   const stageSessions = sessions
-    .filter((s) => s.stage_name === template.stage_name)
+    .filter(
+      (s) =>
+        s.meeting_stage_template_id === template.id ||
+        (s.meeting_stage_template_id == null && s.stage_name === template.stage_name),
+    )
     .sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start))
 
   function openAddSession() {
@@ -102,6 +108,7 @@ export function StageSchedulePage() {
     try {
       await api.createInterview({
         job_id: job.id,
+        meeting_stage_template_id: template.id,
         stage_name: template.stage_name,
         meeting_type: toInterviewMeetingType(template.meeting_type),
         scheduled_start: new Date(`${date}T${startTime}`).toISOString(),

@@ -1,23 +1,23 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from models import db, Job
+from validation import validate_choice
 
 jobs_bp = Blueprint('jobs', __name__)
 
 
 def validate_job_fields(data, partial=False):
     """Returns an error message string, or None if the payload is valid."""
-    if 'status' in data and data['status'] not in Job.VALID_STATUSES:
-        return f"status must be one of {Job.VALID_STATUSES}"
+    error = validate_choice(data, 'status', Job.VALID_STATUSES) or validate_choice(
+        data, 'salary_period', Job.VALID_SALARY_PERIODS
+    )
+    if error:
+        return error
 
     if 'job_type' in data:
         job_type = data['job_type']
         if not isinstance(job_type, list) or any(t not in Job.VALID_JOB_TYPES for t in job_type):
             return f"job_type must be a list of values from {Job.VALID_JOB_TYPES}"
-
-    if 'salary_period' in data and data['salary_period'] is not None:
-        if data['salary_period'] not in Job.VALID_SALARY_PERIODS:
-            return f"salary_period must be one of {Job.VALID_SALARY_PERIODS}"
 
     min_salary = data.get('min_salary')
     max_salary = data.get('max_salary')

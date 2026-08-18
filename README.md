@@ -6,9 +6,9 @@ Vite + TypeScript frontend.
 
 ## Stack
 
-- **Backend:** Flask, Flask-SQLAlchemy, Flask-JWT-Extended, SQLite for local
-  dev (falls back automatically; point `DATABASE_URL` at Postgres for
-  anything beyond that)
+- **Backend:** Flask, Flask-SQLAlchemy, Flask-Migrate (Alembic), Flask-JWT-Extended,
+  SQLite for local dev (falls back automatically; point `DATABASE_URL` at
+  Postgres for anything beyond that)
 - **Frontend:** React 19, Vite, TypeScript, React Router
 
 ## Setup
@@ -20,12 +20,15 @@ cd backend
 python3 -m venv ../venv        # first time only
 source ../venv/bin/activate
 pip install -r requirements.txt
+flask db upgrade                # applies migrations (creates the DB on first run)
 ```
 
-Create a user (there's no public sign-up screen — this is an internal tool):
+Accounts can either self-register (see Auth below, `POST /api/auth/register`
+via the frontend's `/register` page — always created as `recruiter`) or be
+provisioned directly:
 
 ```bash
-flask create-user
+flask create-user   # prompts for first/last name, email, password; --role for admin/interviewer
 ```
 
 Run the API:
@@ -36,7 +39,8 @@ python3 app.py
 
 Serves on **http://127.0.0.1:5050**. (Not 5000 — macOS's AirPlay Receiver
 squats on that port by default and will silently swallow requests before
-Flask ever sees them.)
+Flask ever sees them.) `python3 app.py` also runs any pending migrations on
+startup, so a fresh clone just needs `pip install` + this to be up to date.
 
 Other user-management commands:
 
@@ -44,6 +48,34 @@ Other user-management commands:
 flask deactivate-user --email someone@example.com   # blocks future logins
 flask reset-password --email someone@example.com    # sets a new password
 ```
+
+### Database migrations
+
+Schema changes go through Flask-Migrate/Alembic — never hand-edit the dev DB.
+
+```bash
+# after changing a model in models.py:
+flask db migrate -m "describe the change"   # autogenerates migrations/versions/<rev>_*.py
+# review the generated file, then:
+flask db upgrade                            # applies it
+```
+
+`migrations/env.py` is configured with `render_as_batch=True`, which SQLite
+needs for anything beyond adding a column (dropping/altering columns,
+constraints, etc.) — that's already handled, no extra flags needed.
+
+### Tests
+
+```bash
+cd backend
+source ../venv/bin/activate
+pytest
+```
+
+Tests run against an in-memory SQLite DB (see `tests/conftest.py`) and never
+touch `hiringtool_dev.db`. Coverage is deliberately concentrated on the
+trickiest logic — enroll/unenroll capacity handling, the register flow, and
+the meeting-stage-rename cascade — rather than every route.
 
 ### Frontend
 
@@ -69,25 +101,40 @@ defaults documented above.
 
 ## Features so far
 
-- **Auth** — JWT login, no self-registration; accounts are provisioned via
-  the `flask create-user` CLI.
+- **Auth** — JWT login, plus self-service registration (`/register` on the
+  frontend) for `recruiter` accounts. `admin`/`interviewer` roles are only
+  granted via `flask create-user --role`.
 - **Jobs** — postings with type/location/salary/highlights/description,
-  status (Published/Draft/Closed), and a **meeting stage template** per job
-  (e.g. an "Interview" stage named "CHHA" followed by an "Orientation"
-  stage) shown as chips on the jobs list.
+  status (Published/Draft/Closed), a numbered/reorderable **meeting stage**
+  list per job (e.g. a "Virtual interview" stage named "CHHA" followed by an
+  "In-person orientation" stage), and a per-job **pre-screening question**
+  bank.
+- **Meeting stage editor** — clicking a stage (from the job's stage list or
+  from an upcoming session on the Home page) opens a dedicated editor with
+  its own sidebar: rename/retype/re-time the stage, and manage its scheduled
+  **sessions** (add, delete, enroll/unenroll candidates, capacity limits).
 - **Candidates** — pipeline stage (Applied → Interview → Offer → Hired /
-  Rejected), search and filtering.
+  Rejected), search/filtering/CSV export, and a full candidate detail page:
+  contact info, resume upload, per-stage scheduling + status + notes +
+  1–5 scorecard, the fixed onboarding document checklist (upload/download,
+  incl. a zip of everything), and answers to the job's pre-screening
+  questions.
 - **Home / Upcoming** — scheduled interview sessions (1:1 or capacity-limited
   group sessions like an orientation), with enroll/unenroll per candidate.
   Enrolling a candidate automatically advances their stage to "Interview"
-  (manual overrides on the Candidates page still work).
+  (manual overrides on the Candidates page still work). Clicking a session
+  opens its meeting stage editor.
 
 ## Known gaps
 
-- No database migration tool (Flask-Migrate/Alembic) — schema changes so far
-  have been applied by hand against the dev db. Worth setting up before the
-  schema moves much more.
 - No role-based permission checks yet — any logged-in user can do anything.
-- No resume upload or candidate detail page.
-- Jobs list has no kebab/bulk actions, and there's no "Invite candidates" or
-  public job-board/embed flow.
+- No frontend test coverage (backend has pytest; nothing exercises the React
+  side yet).
+- Resume/onboarding-document storage is local disk under `backend/uploads/`
+  — fine for one dev machine, not for a real multi-instance deployment.
+- Jobs list has no kebab/bulk actions, and there's no public job-board/embed
+  flow.
+- `Interview.meeting_type` and `MeetingStageTemplate.meeting_type` use two
+  different, overlapping vocabularies (a mapping function bridges them when
+  scheduling a session from the stage editor) — worth unifying if either one
+  grows further.

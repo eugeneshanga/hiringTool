@@ -153,6 +153,11 @@ export interface Interview {
   id: number
   job_id: number | null
   job_title: string | null
+  // The real link back to the stage this session belongs to — null for
+  // sessions created before this FK existed, or ad-hoc ones with no stage
+  // template. stage_name is a denormalized display copy kept in sync via
+  // this id, not the other way around.
+  meeting_stage_template_id: number | null
   stage_name: string
   meeting_type: MeetingType
   location: string | null

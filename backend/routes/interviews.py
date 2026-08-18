@@ -1,24 +1,23 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from models import db, Interview, Job, Candidate
+from dateutils import parse_datetime
+from models import db, Interview, Job, Candidate, MeetingStageTemplate
+from validation import validate_choice
 
 interviews_bp = Blueprint('interviews', __name__)
 
 
-def parse_datetime(value, field_name):
-    try:
-        parsed = datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{field_name} must be an ISO-8601 datetime string")
-    # Store as naive UTC, same as every other timestamp in this app — mixing
-    # naive and tz-aware datetimes in one column is how times sent with a 'Z'
-    # (e.g. from the frontend's toISOString()) came back shifted by the
-    # server's local offset.
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-    return parsed
+def _validate_meeting_stage_template(template_id, job_id):
+    """Returns an error message if template_id doesn't refer to a real
+    MeetingStageTemplate belonging to job_id, else None."""
+    template = MeetingStageTemplate.query.get(template_id)
+    if not template:
+        return f"no meeting stage template with id {template_id}"
+    if template.job_id != job_id:
+        return "meeting_stage_template_id does not belong to job_id"
+    return None
 
 
 @interviews_bp.route('/api/interviews', methods=['GET'])
@@ -53,8 +52,9 @@ def create_interview():
     meeting_type = data.get('meeting_type')
     if not stage_name or not meeting_type:
         return jsonify({"error": "stage_name and meeting_type are required"}), 400
-    if meeting_type not in Interview.VALID_MEETING_TYPES:
-        return jsonify({"error": f"meeting_type must be one of {Interview.VALID_MEETING_TYPES}"}), 400
+    error = validate_choice(data, 'meeting_type', Interview.VALID_MEETING_TYPES)
+    if error:
+        return jsonify({"error": error}), 400
 
     try:
         start = parse_datetime(data.get('scheduled_start'), 'scheduled_start')
@@ -69,12 +69,19 @@ def create_interview():
     if job_id is not None and not Job.query.get(job_id):
         return jsonify({"error": f"no job with id {job_id}"}), 400
 
+    meeting_stage_template_id = data.get('meeting_stage_template_id')
+    if meeting_stage_template_id is not None:
+        err = _validate_meeting_stage_template(meeting_stage_template_id, job_id)
+        if err:
+            return jsonify({"error": err}), 400
+
     capacity = data.get('capacity', 1)
     if not isinstance(capacity, int) or capacity < 1:
         return jsonify({"error": "capacity must be a positive integer"}), 400
 
     interview = Interview(
         job_id=job_id,
+        meeting_stage_template_id=meeting_stage_template_id,
         stage_name=stage_name,
         meeting_type=meeting_type,
         location=data.get('location'),
@@ -111,8 +118,15 @@ def update_interview(interview_id):
     if 'job_id' in data and data['job_id'] is not None and not Job.query.get(data['job_id']):
         return jsonify({"error": f"no job with id {data['job_id']}"}), 400
 
-    if 'meeting_type' in data and data['meeting_type'] not in Interview.VALID_MEETING_TYPES:
-        return jsonify({"error": f"meeting_type must be one of {Interview.VALID_MEETING_TYPES}"}), 400
+    error = validate_choice(data, 'meeting_type', Interview.VALID_MEETING_TYPES)
+    if error:
+        return jsonify({"error": error}), 400
+
+    if 'meeting_stage_template_id' in data and data['meeting_stage_template_id'] is not None:
+        effective_job_id = data.get('job_id', interview.job_id)
+        err = _validate_meeting_stage_template(data['meeting_stage_template_id'], effective_job_id)
+        if err:
+            return jsonify({"error": err}), 400
 
     if 'capacity' in data:
         capacity = data['capacity']
@@ -121,7 +135,7 @@ def update_interview(interview_id):
         if capacity < len(interview.candidates):
             return jsonify({"error": "capacity cannot be lower than the number of already-enrolled candidates"}), 400
 
-    for field in ('job_id', 'stage_name', 'meeting_type', 'location', 'capacity'):
+    for field in ('job_id', 'meeting_stage_template_id', 'stage_name', 'meeting_type', 'location', 'capacity'):
         if field in data:
             setattr(interview, field, data[field])
 

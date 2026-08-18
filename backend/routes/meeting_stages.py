@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from models import db, Interview, Job, MeetingStageTemplate
+from validation import validate_choice
 
 meeting_stages_bp = Blueprint('meeting_stages', __name__)
 
@@ -71,10 +72,9 @@ def create_meeting_stage(job_id):
 
     if not meeting_type or not stage_name:
         return jsonify({"error": "meeting_type and stage_name are required"}), 400
-    if meeting_type not in MeetingStageTemplate.VALID_MEETING_TYPES:
-        return jsonify(
-            {"error": f"meeting_type must be one of {MeetingStageTemplate.VALID_MEETING_TYPES}"}
-        ), 400
+    error = validate_choice(data, 'meeting_type', MeetingStageTemplate.VALID_MEETING_TYPES)
+    if error:
+        return jsonify({"error": error}), 400
     if duration_minutes is not None and duration_minutes != '':
         try:
             duration_minutes = int(duration_minutes)
@@ -106,10 +106,9 @@ def update_meeting_stage(job_id, template_id):
     template = MeetingStageTemplate.query.filter_by(id=template_id, job_id=job_id).first_or_404()
     data = request.get_json(silent=True) or {}
 
-    if 'meeting_type' in data and data['meeting_type'] not in MeetingStageTemplate.VALID_MEETING_TYPES:
-        return jsonify(
-            {"error": f"meeting_type must be one of {MeetingStageTemplate.VALID_MEETING_TYPES}"}
-        ), 400
+    error = validate_choice(data, 'meeting_type', MeetingStageTemplate.VALID_MEETING_TYPES)
+    if error:
+        return jsonify({"error": error}), 400
     if 'stage_name' in data and not data['stage_name']:
         return jsonify({"error": "stage_name cannot be empty"}), 400
     if 'duration_minutes' in data:
@@ -127,11 +126,11 @@ def update_meeting_stage(job_id, template_id):
         if field in data:
             setattr(template, field, data[field])
 
-    # Interview sessions reference a stage by name (not by id), so a rename
-    # would otherwise silently orphan its existing sessions from the "Sessions"
-    # list — carry the rename through to them too.
+    # Interview.stage_name is a denormalized display copy, kept in sync via
+    # the meeting_stage_template_id FK rather than by re-matching on the old
+    # name — see code review note on the previous name-matching approach.
     if 'stage_name' in data and data['stage_name'] != old_stage_name:
-        Interview.query.filter_by(job_id=job_id, stage_name=old_stage_name).update(
+        Interview.query.filter_by(meeting_stage_template_id=template.id).update(
             {'stage_name': data['stage_name']}
         )
 

@@ -1,11 +1,12 @@
 import io
 import zipfile
-from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import jwt_required
 
+from dateutils import parse_datetime
 from file_storage import candidate_file_path, delete_candidate_file, delete_candidate_files, save_candidate_file
+from validation import validate_choice
 from models import (
     CANDIDATE_DOCUMENT_TYPES,
     CandidateDocument,
@@ -68,8 +69,9 @@ def create_candidate():
         return jsonify({"error": f"no job with id {job_id}"}), 400
 
     stage = data.get('stage', 'Applied')
-    if stage not in Candidate.VALID_STAGES:
-        return jsonify({"error": f"stage must be one of {Candidate.VALID_STAGES}"}), 400
+    error = validate_choice({'stage': stage}, 'stage', Candidate.VALID_STAGES)
+    if error:
+        return jsonify({"error": error}), 400
 
     candidate = Candidate(
         name=name,
@@ -95,8 +97,9 @@ def update_candidate(candidate_id):
     candidate = Candidate.query.get_or_404(candidate_id)
     data = request.get_json(silent=True) or {}
 
-    if 'stage' in data and data['stage'] not in Candidate.VALID_STAGES:
-        return jsonify({"error": f"stage must be one of {Candidate.VALID_STAGES}"}), 400
+    error = validate_choice(data, 'stage', Candidate.VALID_STAGES)
+    if error:
+        return jsonify({"error": error}), 400
 
     if 'job_id' in data and data['job_id'] is not None and not Job.query.get(data['job_id']):
         return jsonify({"error": f"no job with id {data['job_id']}"}), 400
@@ -277,10 +280,9 @@ def update_stage_progress(candidate_id, template_id):
         return jsonify({"error": "meeting stage does not belong to this candidate's job"}), 400
 
     data = request.get_json(silent=True) or {}
-    if 'status' in data and data['status'] not in CandidateStageProgress.VALID_STATUSES:
-        return jsonify(
-            {"error": f"status must be one of {CandidateStageProgress.VALID_STATUSES}"}
-        ), 400
+    error = validate_choice(data, 'status', CandidateStageProgress.VALID_STATUSES)
+    if error:
+        return jsonify({"error": error}), 400
 
     progress = CandidateStageProgress.query.filter_by(
         candidate_id=candidate.id, meeting_stage_template_id=template.id
@@ -295,15 +297,9 @@ def update_stage_progress(candidate_id, template_id):
         raw = data['scheduled_at']
         if raw:
             try:
-                parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
-            except (ValueError, AttributeError):
-                return jsonify({"error": "scheduled_at must be an ISO datetime string"}), 400
-            # Store as naive UTC, same as every other timestamp in this app
-            # (datetime.utcnow()) — mixing naive and tz-aware datetimes in one
-            # column is how "8:21 PM" silently became "12:21 AM" on the way back out.
-            if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-            progress.scheduled_at = parsed
+                progress.scheduled_at = parse_datetime(raw, 'scheduled_at')
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
         else:
             progress.scheduled_at = None
     if 'location' in data:
