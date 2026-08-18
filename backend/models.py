@@ -77,9 +77,18 @@ class Job(db.Model):
     meeting_stage_templates = db.relationship(
         'MeetingStageTemplate', backref='job', cascade='all, delete-orphan', lazy=True
     )
-    screening_questions = db.relationship(
-        'JobScreeningQuestion', backref='job', cascade='all, delete-orphan', lazy=True
-    )
+
+    @property
+    def screening_questions(self):
+        """Every pre-screening question across all of this job's stages —
+        questions live on a stage (see MeetingStageTemplate.screening_questions)
+        but a candidate applying to the job answers all of them, regardless of
+        which stage each one belongs to."""
+        return [
+            q
+            for t in sorted(self.meeting_stage_templates, key=lambda t: (t.sort_order, t.id))
+            for q in sorted(t.screening_questions, key=lambda q: (q.sort_order, q.id))
+        ]
 
     def to_dict(self):
         return {
@@ -114,6 +123,8 @@ class MeetingStageTemplate(db.Model):
     meeting_type = db.Column(db.String(50), nullable=False)
     stage_name = db.Column(db.String(100), nullable=False)  # e.g. CHHA, Orientation
     duration_minutes = db.Column(db.Integer)  # only meaningful for interview-type stages
+    # How far in advance a candidate can book a session for this stage.
+    scheduling_window_days = db.Column(db.Integer, default=7, nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -124,6 +135,10 @@ class MeetingStageTemplate(db.Model):
         'Instant meeting link',
     )
 
+    screening_questions = db.relationship(
+        'ScreeningQuestion', backref='meeting_stage_template', cascade='all, delete-orphan', lazy=True
+    )
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -131,26 +146,41 @@ class MeetingStageTemplate(db.Model):
             "meeting_type": self.meeting_type,
             "stage_name": self.stage_name,
             "duration_minutes": self.duration_minutes,
+            "scheduling_window_days": self.scheduling_window_days,
             "sort_order": self.sort_order,
         }
 
 
-class JobScreeningQuestion(db.Model):
-    """A reusable pre-screening question defined on a job. Candidates applying
-    to that job get one CandidateScreeningAnswer per question."""
-    __tablename__ = 'job_screening_questions'
+class ScreeningQuestion(db.Model):
+    """A pre-screening question defined on a meeting stage (the Stage editor's
+    "Pre-screen" tab). Candidates progressing through the job get one
+    CandidateScreeningAnswer per question, across all of the job's stages —
+    see Job.screening_questions."""
+    __tablename__ = 'screening_questions'
 
     id = db.Column(db.Integer, primary_key=True)
-    job_id = db.Column(db.Integer, db.ForeignKey('jobs.id'), nullable=False)
+    meeting_stage_template_id = db.Column(
+        db.Integer, db.ForeignKey('meeting_stage_templates.id'), nullable=False
+    )
     question_text = db.Column(db.String(500), nullable=False)
+    question_label = db.Column(db.String(200))  # short internal name, e.g. "Car insurance"
+    # A multiple-choice question candidates pick one option from. Both empty
+    # (list, not None) means a free-text question with no fixed options.
+    answer_options = db.Column(db.JSON, default=list, nullable=False)
+    # Subset of answer_options that qualifies a candidate to proceed — anything
+    # picked that isn't in here is a disqualifying answer.
+    qualified_answers = db.Column(db.JSON, default=list, nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
         return {
             "id": self.id,
-            "job_id": self.job_id,
+            "meeting_stage_template_id": self.meeting_stage_template_id,
             "question_text": self.question_text,
+            "question_label": self.question_label,
+            "answer_options": self.answer_options or [],
+            "qualified_answers": self.qualified_answers or [],
             "sort_order": self.sort_order,
         }
 
@@ -286,9 +316,10 @@ class Candidate(db.Model):
 
     def to_detail_dict(self):
         data = self.to_dict()
-        questions = (
-            sorted(self.job.screening_questions, key=lambda q: (q.sort_order, q.id)) if self.job else []
-        )
+        # Job.screening_questions is already ordered (by stage, then question
+        # sort_order) — re-sorting by question sort_order alone would scramble
+        # that, since sort_order only orders questions within their own stage.
+        questions = self.job.screening_questions if self.job else []
         answers_by_question = {a.question_id: a.answer_text for a in self.screening_answers}
         progress_by_template = {p.meeting_stage_template_id: p for p in self.stage_progress}
         templates = (
@@ -303,6 +334,7 @@ class Candidate(db.Model):
                     {
                         "question_id": q.id,
                         "question_text": q.question_text,
+                        "answer_options": q.answer_options or [],
                         "answer_text": answers_by_question.get(q.id),
                     }
                     for q in questions
@@ -340,7 +372,7 @@ class CandidateScreeningAnswer(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     candidate_id = db.Column(db.Integer, db.ForeignKey('candidates.id'), nullable=False)
-    question_id = db.Column(db.Integer, db.ForeignKey('job_screening_questions.id'), nullable=False)
+    question_id = db.Column(db.Integer, db.ForeignKey('screening_questions.id'), nullable=False)
     answer_text = db.Column(db.Text)
 
     __table_args__ = (db.UniqueConstraint('candidate_id', 'question_id', name='uq_candidate_question'),)

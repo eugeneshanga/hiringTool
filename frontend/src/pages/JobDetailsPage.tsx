@@ -101,7 +101,7 @@ export function JobDetailsPage() {
   }
 
   return (
-    <div>
+    <div className="job-details-page">
       {error && <div className="error-banner">{error}</div>}
 
       <div className="card section">
@@ -217,7 +217,7 @@ export function JobDetailsPage() {
           />
         </label>
         {highlights.length > 0 && (
-          <div className="chip-list">
+          <div className="chip-list chip-list-wrap">
             {highlights.map((h) => (
               <span key={h} className="chip removable">
                 {h}
@@ -239,9 +239,11 @@ export function JobDetailsPage() {
         </label>
       </form>
 
-      <button className="link-button danger" onClick={handleDeleteJob}>
-        Delete job
-      </button>
+      <div className="danger-zone">
+        <button className="link-button danger" onClick={handleDeleteJob}>
+          Delete job
+        </button>
+      </div>
     </div>
   )
 }

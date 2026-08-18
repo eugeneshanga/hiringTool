@@ -7,11 +7,18 @@ import type {
   CandidateDocumentType,
   Interview,
   Job,
-  JobScreeningQuestion,
+  ScreeningQuestion,
   MeetingStageTemplate,
   StageProgressStatus,
   User,
 } from './types'
+
+export interface ScreeningQuestionInput {
+  question_text: string
+  question_label?: string | null
+  answer_options?: string[]
+  qualified_answers?: string[]
+}
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:5050'
 const TOKEN_KEY = 'hiringtool_token'
@@ -161,7 +168,12 @@ export const api = {
   updateMeetingStage: (
     jobId: number,
     templateId: number,
-    data: { meeting_type?: string; stage_name?: string; duration_minutes?: number | null },
+    data: {
+      meeting_type?: string
+      stage_name?: string
+      duration_minutes?: number | null
+      scheduling_window_days?: number
+    },
   ) =>
     request<MeetingStageTemplate>(`/api/jobs/${jobId}/meeting-stages/${templateId}`, {
       method: 'PATCH',
@@ -239,15 +251,28 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  listScreeningQuestions: (jobId: number) =>
-    request<JobScreeningQuestion[]>(`/api/jobs/${jobId}/screening-questions`),
-  createScreeningQuestion: (jobId: number, questionText: string) =>
-    request<JobScreeningQuestion>(`/api/jobs/${jobId}/screening-questions`, {
+  listStageScreeningQuestions: (jobId: number, templateId: number) =>
+    request<ScreeningQuestion[]>(`/api/jobs/${jobId}/meeting-stages/${templateId}/screening-questions`),
+  createStageScreeningQuestion: (jobId: number, templateId: number, data: ScreeningQuestionInput) =>
+    request<ScreeningQuestion>(`/api/jobs/${jobId}/meeting-stages/${templateId}/screening-questions`, {
       method: 'POST',
-      body: JSON.stringify({ question_text: questionText }),
+      body: JSON.stringify(data),
     }),
-  deleteScreeningQuestion: (jobId: number, questionId: number) =>
-    request<void>(`/api/jobs/${jobId}/screening-questions/${questionId}`, { method: 'DELETE' }),
+  updateStageScreeningQuestion: (
+    jobId: number,
+    templateId: number,
+    questionId: number,
+    data: ScreeningQuestionInput,
+  ) =>
+    request<ScreeningQuestion>(
+      `/api/jobs/${jobId}/meeting-stages/${templateId}/screening-questions/${questionId}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+    ),
+  deleteStageScreeningQuestion: (jobId: number, templateId: number, questionId: number) =>
+    request<void>(
+      `/api/jobs/${jobId}/meeting-stages/${templateId}/screening-questions/${questionId}`,
+      { method: 'DELETE' },
+    ),
 
   listInterviews: (params?: { upcoming?: boolean; job_id?: number }) => {
     const qs = new URLSearchParams()

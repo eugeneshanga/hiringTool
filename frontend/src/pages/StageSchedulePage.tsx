@@ -1,22 +1,9 @@
 import { Fragment, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
-import type { Candidate, Interview, MeetingType, StageMeetingType } from '../api/types'
+import { needsDuration, toInterviewMeetingType } from '../lib/meetingStageTypes'
+import type { Candidate, Interview } from '../api/types'
 import { useStageEditorContext } from './StageEditorLayout'
-
-// Interview.meeting_type still uses the older, narrower vocabulary than
-// MeetingStageTemplate.meeting_type — map into it when scheduling a session
-// for a stage, since there's no exact one-to-one equivalent.
-function toInterviewMeetingType(type: StageMeetingType): MeetingType {
-  switch (type) {
-    case 'In-person orientation':
-      return 'Orientation'
-    case 'Instant meeting link':
-      return 'Other'
-    default:
-      return 'Interview'
-  }
-}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -42,7 +29,11 @@ function toLocalDateValue(date: Date) {
 }
 
 export function StageSchedulePage() {
-  const { job, template } = useStageEditorContext()
+  const { job, template, onTemplateChange, sessionsVersion } = useStageEditorContext()
+
+  const [durationInput, setDurationInput] = useState(template.duration_minutes?.toString() ?? '')
+  const [windowInput, setWindowInput] = useState(String(template.scheduling_window_days))
+  const [savingSettings, setSavingSettings] = useState(false)
 
   const [sessions, setSessions] = useState<Interview[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -78,8 +69,26 @@ export function StageSchedulePage() {
 
   useEffect(() => {
     loadSessions()
+    // sessionsVersion bumps after scheduling a session from the "Schedule
+    // interview" button in the header, so this list stays in sync with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.id, template.id])
+  }, [job.id, template.id, sessionsVersion])
+
+  async function handleSaveSettings() {
+    setSavingSettings(true)
+    setError(null)
+    try {
+      const updated = await api.updateMeetingStage(job.id, template.id, {
+        duration_minutes: needsDuration(template.meeting_type) && durationInput ? Number(durationInput) : null,
+        scheduling_window_days: Number(windowInput) || 0,
+      })
+      onTemplateChange(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save settings')
+    } finally {
+      setSavingSettings(false)
+    }
+  }
 
   // Prefer the real FK; fall back to a stage_name match only for sessions
   // created before it existed (or ad-hoc ones with no template at all).
@@ -159,6 +168,32 @@ export function StageSchedulePage() {
   return (
     <div>
       {error && <div className="error-banner">{error}</div>}
+
+      <div className="card stage-settings-box">
+        {needsDuration(template.meeting_type) && (
+          <label>
+            Interview length (minutes)
+            <input
+              type="number"
+              min={1}
+              value={durationInput}
+              onChange={(e) => setDurationInput(e.target.value)}
+              onBlur={handleSaveSettings}
+            />
+          </label>
+        )}
+        <label>
+          Days in advance to allow scheduling
+          <input
+            type="number"
+            min={0}
+            value={windowInput}
+            onChange={(e) => setWindowInput(e.target.value)}
+            onBlur={handleSaveSettings}
+          />
+        </label>
+        {savingSettings && <span className="subtle">Saving…</span>}
+      </div>
 
       <div className="card section">
         <div className="section-header">

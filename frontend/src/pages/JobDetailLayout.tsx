@@ -91,12 +91,6 @@ export function JobDetailLayout() {
           >
             Meeting stages
           </NavLink>
-          <NavLink
-            to={`/jobs/${job.id}/screening-questions`}
-            className={({ isActive }) => (isActive ? 'active' : '')}
-          >
-            Pre-screening questions
-          </NavLink>
         </aside>
         <div className="job-detail-content">
           <div className="job-detail-title-row">

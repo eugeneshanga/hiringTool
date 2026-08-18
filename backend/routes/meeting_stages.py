@@ -120,9 +120,17 @@ def update_meeting_stage(job_id, template_id):
                 return jsonify({"error": "duration_minutes must be an integer"}), 400
         else:
             data['duration_minutes'] = None
+    if 'scheduling_window_days' in data:
+        try:
+            window = int(data['scheduling_window_days'])
+        except (TypeError, ValueError):
+            return jsonify({"error": "scheduling_window_days must be an integer"}), 400
+        if window < 0:
+            return jsonify({"error": "scheduling_window_days cannot be negative"}), 400
+        data['scheduling_window_days'] = window
 
     old_stage_name = template.stage_name
-    for field in ('meeting_type', 'stage_name', 'duration_minutes'):
+    for field in ('meeting_type', 'stage_name', 'duration_minutes', 'scheduling_window_days'):
         if field in data:
             setattr(template, field, data[field])
 

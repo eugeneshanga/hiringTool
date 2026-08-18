@@ -28,6 +28,7 @@ export interface MeetingStageTemplate {
   meeting_type: StageMeetingType
   stage_name: string
   duration_minutes: number | null
+  scheduling_window_days: number
   sort_order: number
 }
 
@@ -93,16 +94,23 @@ export interface Candidate {
   current_stage: CurrentStageSummary | null
 }
 
-export interface JobScreeningQuestion {
+export interface ScreeningQuestion {
   id: number
-  job_id: number
+  meeting_stage_template_id: number
   question_text: string
+  question_label: string | null
+  // A multiple-choice question candidates pick one option from; empty means a
+  // free-text question with no fixed options.
+  answer_options: string[]
+  // Subset of answer_options that qualifies a candidate to proceed.
+  qualified_answers: string[]
   sort_order: number
 }
 
 export interface CandidateScreeningAnswer {
   question_id: number
   question_text: string
+  answer_options: string[]
   answer_text: string | null
 }
 

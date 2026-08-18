@@ -11,7 +11,7 @@ import { JobDetailsPage } from './pages/JobDetailsPage'
 import { JobMeetingStagesPage } from './pages/JobMeetingStagesPage'
 import { StageEditorLayout } from './pages/StageEditorLayout'
 import { StageSchedulePage } from './pages/StageSchedulePage'
-import { JobScreeningQuestionsPage } from './pages/JobScreeningQuestionsPage'
+import { StagePreScreenPage } from './pages/StagePreScreenPage'
 import { CandidatesPage } from './pages/CandidatesPage'
 import { CandidateDetailsPage } from './pages/CandidateDetailsPage'
 
@@ -53,7 +53,6 @@ function App() {
         >
           <Route index element={<JobDetailsPage />} />
           <Route path="meeting-stages" element={<JobMeetingStagesPage />} />
-          <Route path="screening-questions" element={<JobScreeningQuestionsPage />} />
         </Route>
         <Route
           path="/jobs/:jobId/meeting-stages/:templateId"
@@ -66,6 +65,7 @@ function App() {
           }
         >
           <Route index element={<StageSchedulePage />} />
+          <Route path="pre-screen" element={<StagePreScreenPage />} />
         </Route>
         <Route
           path="/candidates"

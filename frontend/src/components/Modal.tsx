@@ -4,9 +4,12 @@ interface ModalProps {
   title: string
   onClose: () => void
   children: ReactNode
+  /** "wide" for content-heavy dialogs (e.g. a calendar) that don't fit the
+   * default form-width modal. */
+  size?: 'default' | 'wide'
 }
 
-export function Modal({ title, onClose, children }: ModalProps) {
+export function Modal({ title, onClose, children, size = 'default' }: ModalProps) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -21,7 +24,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
 
   return (
     <div className="modal-overlay" onMouseDown={onOverlayClick}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal${size === 'wide' ? ' modal-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">

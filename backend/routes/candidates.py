@@ -14,7 +14,7 @@ from models import (
     CandidateStageProgress,
     Candidate,
     Job,
-    JobScreeningQuestion,
+    ScreeningQuestion,
     MeetingStageTemplate,
     db,
 )
@@ -248,8 +248,8 @@ def update_screening_answers(candidate_id):
     existing = {a.question_id: a for a in candidate.screening_answers}
     for entry in answers:
         question_id = entry.get('question_id')
-        question = JobScreeningQuestion.query.get(question_id)
-        if not question or question.job_id != candidate.job_id:
+        question = ScreeningQuestion.query.get(question_id)
+        if not question or question.meeting_stage_template.job_id != candidate.job_id:
             return jsonify({"error": f"question {question_id} does not belong to this candidate's job"}), 400
 
         if question_id in existing:

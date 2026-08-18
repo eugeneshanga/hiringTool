@@ -65,7 +65,18 @@ export function ScreeningAnswers({ candidate, onCandidateChange, onError }: Scre
               <span className={`screening-check${value.trim() ? ' answered' : ''}`}>✓</span>
               <div className="screening-row-body">
                 <strong>{a.question_text}</strong>
-                <input value={value} onChange={(e) => handleAnswerChange(a.question_id, e.target.value)} />
+                {a.answer_options.length > 0 ? (
+                  <select value={value} onChange={(e) => handleAnswerChange(a.question_id, e.target.value)}>
+                    <option value="">Select an answer…</option>
+                    {a.answer_options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={value} onChange={(e) => handleAnswerChange(a.question_id, e.target.value)} />
+                )}
               </div>
             </div>
           )

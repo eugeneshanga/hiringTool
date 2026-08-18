@@ -2,13 +2,17 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
-import { DEFAULT_DURATION, MEETING_TYPES, needsDuration } from '../lib/meetingStageTypes'
+import { ScheduleInterviewModal } from './ScheduleInterviewModal'
+import { MEETING_TYPES } from '../lib/meetingStageTypes'
 import type { Job, MeetingStageTemplate, StageMeetingType } from '../api/types'
 
 export interface StageEditorContext {
   job: Job
   template: MeetingStageTemplate
   reloadTemplate: () => Promise<void>
+  onTemplateChange: (template: MeetingStageTemplate) => void
+  sessionsVersion: number
+  bumpSessionsVersion: () => void
 }
 
 export function useStageEditorContext() {
@@ -20,12 +24,14 @@ export function StageEditorLayout() {
   const [job, setJob] = useState<Job | null>(null)
   const [template, setTemplate] = useState<MeetingStageTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [sessionsVersion, setSessionsVersion] = useState(0)
 
   const [editingStage, setEditingStage] = useState(false)
   const [editMeetingType, setEditMeetingType] = useState<StageMeetingType>('Virtual interview')
   const [editStageName, setEditStageName] = useState('')
-  const [editDuration, setEditDuration] = useState(DEFAULT_DURATION)
   const [savingStage, setSavingStage] = useState(false)
+
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
 
   const load = useCallback(async () => {
     if (!jobId || !templateId) return
@@ -49,7 +55,6 @@ export function StageEditorLayout() {
     if (!template) return
     setEditMeetingType(template.meeting_type)
     setEditStageName(template.stage_name)
-    setEditDuration(template.duration_minutes ? String(template.duration_minutes) : DEFAULT_DURATION)
     setEditingStage(true)
   }
 
@@ -62,7 +67,6 @@ export function StageEditorLayout() {
       const updated = await api.updateMeetingStage(job.id, template.id, {
         meeting_type: editMeetingType,
         stage_name: editStageName.trim(),
-        duration_minutes: needsDuration(editMeetingType) && editDuration ? Number(editDuration) : null,
       })
       setTemplate(updated)
       setEditingStage(false)
@@ -99,6 +103,12 @@ export function StageEditorLayout() {
           <div className="sidebar-group-label">Stage editor</div>
           <div className="sidebar-subgroup-label">Stage</div>
           <NavLink
+            to={`/jobs/${job.id}/meeting-stages/${template.id}/pre-screen`}
+            className={({ isActive }) => (isActive ? 'active' : '')}
+          >
+            Pre-screen
+          </NavLink>
+          <NavLink
             to={`/jobs/${job.id}/meeting-stages/${template.id}`}
             end
             className={({ isActive }) => (isActive ? 'active' : '')}
@@ -107,18 +117,48 @@ export function StageEditorLayout() {
           </NavLink>
         </aside>
         <div className="job-detail-content">
-          <div className="job-detail-title-row">
-            <h1>
-              {template.stage_name}
-              <button type="button" className="icon-button" onClick={openEditStage} aria-label="Edit stage">
-                ✎
+          <div className="stage-header-row">
+            <div className="job-detail-title-row" style={{ marginBottom: 0 }}>
+              <h1>
+                {template.stage_name}
+                <button type="button" className="icon-button" onClick={openEditStage} aria-label="Edit stage">
+                  ✎
+                </button>
+              </h1>
+              <p className="subtle">{template.meeting_type}</p>
+            </div>
+            <div className="page-header-actions">
+              <button type="button" onClick={() => setShowScheduleModal(true)}>
+                Schedule interview
               </button>
-            </h1>
-            <p className="subtle">{template.meeting_type}</p>
+            </div>
           </div>
-          <Outlet context={{ job, template, reloadTemplate: load } satisfies StageEditorContext} />
+          <Outlet
+            context={
+              {
+                job,
+                template,
+                reloadTemplate: load,
+                onTemplateChange: setTemplate,
+                sessionsVersion,
+                bumpSessionsVersion: () => setSessionsVersion((v) => v + 1),
+              } satisfies StageEditorContext
+            }
+          />
         </div>
       </div>
+
+      {showScheduleModal && (
+        <ScheduleInterviewModal
+          job={job}
+          template={template}
+          onClose={() => setShowScheduleModal(false)}
+          onScheduled={() => {
+            setShowScheduleModal(false)
+            setSessionsVersion((v) => v + 1)
+          }}
+        />
+      )}
 
       {editingStage && (
         <Modal title="Edit meeting stage" onClose={() => setEditingStage(false)}>
@@ -147,18 +187,6 @@ export function StageEditorLayout() {
               Meeting name
               <input value={editStageName} onChange={(e) => setEditStageName(e.target.value)} required />
             </label>
-
-            {needsDuration(editMeetingType) && (
-              <label>
-                Interview length (minutes)
-                <input
-                  type="number"
-                  min={1}
-                  value={editDuration}
-                  onChange={(e) => setEditDuration(e.target.value)}
-                />
-              </label>
-            )}
 
             <div className="modal-actions">
               <button type="button" className="button-secondary" onClick={() => setEditingStage(false)}>

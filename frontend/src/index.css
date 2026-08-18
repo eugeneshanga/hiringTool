@@ -318,6 +318,12 @@ button:disabled {
   margin-top: 0.4rem;
 }
 
+.chip-list.chip-list-wrap {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .chip-row {
   font-size: 0.85rem;
   color: var(--text-subtle);
@@ -327,22 +333,22 @@ button:disabled {
   display: inline-block;
   background: var(--border);
   border-radius: 999px;
-  padding: 0.15rem 0.65rem;
-  font-size: 0.78rem;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.72rem;
   color: var(--text);
 }
 
 .chip.removable {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .chip.removable button {
   background: none;
   color: var(--text-subtle);
   padding: 0;
-  font-size: 1rem;
+  font-size: 0.85rem;
   line-height: 1;
 }
 
@@ -374,6 +380,155 @@ button:disabled {
   margin-bottom: 1.5rem;
 }
 
+.candidate-search-results {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.candidate-search-results li {
+  padding: 0.4rem 0.7rem;
+}
+
+.candidate-search-results li:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-calendar-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.calendar {
+  flex: 1;
+  min-width: 260px;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.calendar-nav {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.2rem;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-subtle);
+  padding: 0.2rem 0;
+}
+
+.calendar-day {
+  position: relative;
+  background: none;
+  color: var(--text);
+  font-weight: 500;
+  padding: 0.5rem 0;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.calendar-day:hover {
+  background: var(--bg);
+}
+
+.calendar-day.outside-month {
+  color: var(--text-subtle);
+  opacity: 0.5;
+}
+
+.calendar-day.today {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.calendar-day.selected {
+  background: var(--primary);
+  color: white;
+}
+
+.calendar-dot {
+  position: absolute;
+  bottom: 0.15rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.calendar-day-panel {
+  flex: 1;
+  min-width: 200px;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-self: flex-start;
+}
+
+.calendar-day-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  margin: 0 0 0.3rem;
+}
+
+.time-slot-button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  text-align: center;
+  font-weight: 500;
+}
+
+.time-slot-button.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.stage-settings-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.stage-settings-box label {
+  max-width: 220px;
+}
+
+.stage-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
 .job-detail-title-row h1 {
   display: flex;
   align-items: center;
@@ -391,6 +546,113 @@ button:disabled {
 
 .icon-button:hover {
   background: var(--bg);
+}
+
+.icon-button.danger {
+  color: var(--danger);
+}
+
+.question-row-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.question-type-box {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.qualify-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.qualify-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid;
+  font-weight: 500;
+}
+
+.qualify-option.qualified {
+  background: #e0f5e6;
+  border-color: #1a8a4a;
+  color: var(--text);
+}
+
+.qualify-option.disqualified {
+  background: #fdecec;
+  border-color: #f0b8b8;
+  color: var(--text);
+}
+
+.qualify-option:hover {
+  filter: brightness(0.97);
+}
+
+.qualify-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: white;
+}
+
+.qualify-option.qualified .qualify-checkbox {
+  background: #1a8a4a;
+}
+
+.qualify-option.disqualified .qualify-checkbox {
+  border: 1px solid #d99;
+}
+
+.stage-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.show-answers-toggle {
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+}
+
+.answer-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.9rem 0 2.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.answer-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.answer-preview-item.qualified span {
+  color: #1a8a4a;
+}
+
+.answer-preview-item.disqualified span {
+  color: var(--danger);
 }
 
 .sidebar-group-label {
@@ -439,6 +701,16 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+.job-details-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.job-details-page .danger-zone {
+  margin-top: 0.75rem;
 }
 
 .section-header {
@@ -597,6 +869,10 @@ button:disabled {
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal.modal-wide {
+  max-width: 780px;
 }
 
 .modal-header {

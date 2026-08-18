@@ -72,3 +72,23 @@ def test_move_reorders_stages(client, auth_headers, job, meeting_stage):
     assert resp.status_code == 200
     ordered = resp.get_json()
     assert [t['id'] for t in ordered] == [second['id'], meeting_stage.id]
+
+
+def test_scheduling_window_days_defaults_and_updates(client, auth_headers, job, meeting_stage):
+    initial = client.get(f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers).get_json()
+    assert initial['scheduling_window_days'] == 7
+
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'scheduling_window_days': 14},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()['scheduling_window_days'] == 14
+
+
+def test_scheduling_window_days_rejects_negative(client, auth_headers, job, meeting_stage):
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'scheduling_window_days': -1},
+    )
+    assert resp.status_code == 400
