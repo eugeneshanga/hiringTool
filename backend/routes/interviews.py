@@ -3,7 +3,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from dateutils import parse_datetime
-from models import db, Interview, Job, Candidate, MeetingStageTemplate
+from models import db, CandidateStageProgress, Interview, Job, Candidate, MeetingStageTemplate
 from validation import validate_choice
 
 interviews_bp = Blueprint('interviews', __name__)
@@ -174,6 +174,27 @@ def enroll_candidate(interview_id):
     # stage of the pipeline. This always overwrites their current stage - manual
     # stage changes on the Candidates page remain available as an override.
     candidate.stage = 'Interview'
+
+    # A session tied to a meeting stage is "the schedule" for that stage as
+    # far as the candidate's own page and current_stage (Candidates list) are
+    # concerned — enrolling here is meant to read the same as using
+    # "Reschedule" on the candidate's page (updateStageProgress), just from
+    # the other side. Without this, the candidate's page would still say "Not
+    # yet scheduled" despite them being enrolled in a real session.
+    if interview.meeting_stage_template_id is not None:
+        progress = CandidateStageProgress.query.filter_by(
+            candidate_id=candidate.id, meeting_stage_template_id=interview.meeting_stage_template_id,
+        ).first()
+        if not progress:
+            progress = CandidateStageProgress(
+                candidate_id=candidate.id, meeting_stage_template_id=interview.meeting_stage_template_id,
+            )
+            db.session.add(progress)
+        progress.status = 'Upcoming'
+        progress.scheduled_at = interview.scheduled_start
+        if interview.location:
+            progress.location = interview.location
+
     db.session.commit()
     return jsonify(interview.to_dict()), 200
 
@@ -190,5 +211,21 @@ def unenroll_candidate(interview_id):
         return jsonify({"error": "candidate is not enrolled in this interview"}), 400
 
     interview.candidates.remove(candidate)
+
+    # Mirror of the enroll-side sync above: only clear the schedule shown on
+    # the candidate's page if they aren't still enrolled in some other
+    # session for this same stage (candidate.interviews already reflects the
+    # removal above via the relationship's backref).
+    if interview.meeting_stage_template_id is not None:
+        still_has_session_for_stage = any(
+            i.meeting_stage_template_id == interview.meeting_stage_template_id for i in candidate.interviews
+        )
+        if not still_has_session_for_stage:
+            progress = CandidateStageProgress.query.filter_by(
+                candidate_id=candidate.id, meeting_stage_template_id=interview.meeting_stage_template_id,
+            ).first()
+            if progress:
+                progress.scheduled_at = None
+
     db.session.commit()
     return jsonify(interview.to_dict()), 200

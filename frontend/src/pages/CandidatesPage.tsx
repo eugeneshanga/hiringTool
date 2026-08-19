@@ -226,7 +226,18 @@ export function CandidatesPage() {
             <tbody>
               {rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel }) => (
                 <tr key={c.id} className="clickable-row" onClick={() => navigate(`/candidates/${c.id}`)}>
-                  <td>{c.name}</td>
+                  <td>
+                    {c.name}
+                    {c.candidate_account_id != null && (
+                      <span
+                        className="chip"
+                        style={{ marginLeft: '0.5rem' }}
+                        title="Created their own account by registering"
+                      >
+                        Self-registered
+                      </span>
+                    )}
+                  </td>
                   <td>{c.job_title ?? '—'}</td>
                   <td>{stageLabel}</td>
                   <td>{formatDate(c.updated_at)}</td>

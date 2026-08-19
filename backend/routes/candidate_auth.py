@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from models import db, CandidateAccount
+from models import Candidate, db, CandidateAccount
 
 candidate_auth_bp = Blueprint('candidate_auth', __name__)
 
@@ -33,6 +33,19 @@ def register():
     account = CandidateAccount(first_name=first_name, last_name=last_name, email=email, phone=phone)
     account.set_password(password)
     db.session.add(account)
+    db.session.commit()
+
+    # Give recruiters visibility into every self-registered candidate right
+    # away, even before they've applied to a specific job — a plain,
+    # unassigned (job_id=None) row on the Candidates list, same as one a
+    # recruiter would add by hand. Login never touches this; only the first
+    # registration creates it, so there's exactly one per account.
+    db.session.add(Candidate(
+        candidate_account_id=account.id,
+        name=account.name,
+        email=account.email,
+        phone=account.phone,
+    ))
     db.session.commit()
 
     return jsonify({"access_token": _issue_token(account), "candidate": account.to_dict()}), 201

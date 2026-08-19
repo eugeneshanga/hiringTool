@@ -81,6 +81,74 @@ def test_capacity_cannot_drop_below_enrolled_count(client, auth_headers, candida
     assert 'capacity' in r.get_json()['error']
 
 
+def test_enroll_in_a_stage_session_updates_the_candidates_own_schedule(
+    client, auth_headers, candidate_factory, job, meeting_stage
+):
+    """Enrolling via a session tied to a meeting stage should read the same
+    as using "Reschedule" on the candidate's own page — their stages[] entry
+    for that template must pick up the status/scheduled_at, not just the
+    Interview's candidate list."""
+    interview = create_interview(
+        client, auth_headers,
+        job_id=job.id, meeting_stage_template_id=meeting_stage.id, stage_name=meeting_stage.stage_name,
+        meeting_type='Interview',
+    )
+    candidate = candidate_factory(job_id=job.id)
+
+    client.post(f"/api/interviews/{interview['id']}/enroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    detail = client.get(f'/api/candidates/{candidate.id}', headers=auth_headers).get_json()
+    stage = next(s for s in detail['stages'] if s['meeting_stage_template_id'] == meeting_stage.id)
+    assert stage['status'] == 'Upcoming'
+    assert stage['scheduled_at'] == interview['scheduled_start']
+
+    listed = client.get('/api/candidates', headers=auth_headers).get_json()
+    listed_candidate = next(c for c in listed if c['id'] == candidate.id)
+    assert listed_candidate['current_stage']['scheduled_at'] == interview['scheduled_start']
+
+
+def test_unenroll_clears_the_candidates_schedule_for_that_stage(
+    client, auth_headers, candidate_factory, job, meeting_stage
+):
+    interview = create_interview(
+        client, auth_headers,
+        job_id=job.id, meeting_stage_template_id=meeting_stage.id, stage_name=meeting_stage.stage_name,
+        meeting_type='Interview',
+    )
+    candidate = candidate_factory(job_id=job.id)
+    client.post(f"/api/interviews/{interview['id']}/enroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    client.post(f"/api/interviews/{interview['id']}/unenroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    detail = client.get(f'/api/candidates/{candidate.id}', headers=auth_headers).get_json()
+    stage = next(s for s in detail['stages'] if s['meeting_stage_template_id'] == meeting_stage.id)
+    assert stage['scheduled_at'] is None
+
+
+def test_unenroll_keeps_schedule_if_still_enrolled_in_another_session_for_the_stage(
+    client, auth_headers, candidate_factory, job, meeting_stage
+):
+    first = create_interview(
+        client, auth_headers,
+        job_id=job.id, meeting_stage_template_id=meeting_stage.id, stage_name=meeting_stage.stage_name,
+        meeting_type='Interview', scheduled_start='2026-09-01T13:00:00.000Z', scheduled_end='2026-09-01T14:00:00.000Z',
+    )
+    second = create_interview(
+        client, auth_headers,
+        job_id=job.id, meeting_stage_template_id=meeting_stage.id, stage_name=meeting_stage.stage_name,
+        meeting_type='Interview', scheduled_start='2026-09-02T13:00:00.000Z', scheduled_end='2026-09-02T14:00:00.000Z',
+    )
+    candidate = candidate_factory(job_id=job.id)
+    client.post(f"/api/interviews/{first['id']}/enroll", headers=auth_headers, json={'candidate_id': candidate.id})
+    client.post(f"/api/interviews/{second['id']}/enroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    client.post(f"/api/interviews/{first['id']}/unenroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    detail = client.get(f'/api/candidates/{candidate.id}', headers=auth_headers).get_json()
+    stage = next(s for s in detail['stages'] if s['meeting_stage_template_id'] == meeting_stage.id)
+    assert stage['scheduled_at'] == second['scheduled_start']
+
+
 def test_scheduled_time_round_trips_as_utc(client, auth_headers):
     """Regression test for the tz bug fixed earlier: a time sent with an
     explicit UTC 'Z' must come back with one too, unchanged."""

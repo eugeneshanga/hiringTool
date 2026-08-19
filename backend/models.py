@@ -283,6 +283,12 @@ class Candidate(db.Model):
     email = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(20))
     job_id = db.Column(db.Integer, db.ForeignKey('jobs.id'), nullable=True)
+    # Set when this row was created from a candidate's self-registration
+    # (routes/candidate_auth.py) rather than by a recruiter. Nullable because
+    # recruiters can still add candidates by hand with no account behind them.
+    candidate_account_id = db.Column(
+        db.Integer, db.ForeignKey('candidate_accounts.id'), nullable=True
+    )
     stage = db.Column(db.String(50), default='Applied')  # e.g. Applied, Interview, Offer, Hired, Rejected
     status = db.Column(db.String(50), default='Active')
     interviewer = db.Column(db.String(120))
@@ -319,6 +325,7 @@ class Candidate(db.Model):
             "phone": self.phone,
             "job_id": self.job_id,
             "job_title": self.job.title if self.job else None,
+            "candidate_account_id": self.candidate_account_id,
             "stage": self.stage,
             "status": self.status,
             "interviewer": self.interviewer,

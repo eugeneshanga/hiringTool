@@ -146,10 +146,12 @@ defaults documented above.
   recruiter routes. (Candidate vs. recruiter is enforced, per the Auth
   bullet above — this gap is about the three recruiter roles not being
   differentiated from each other.)
-- Candidate accounts aren't linked to anything yet — a `CandidateAccount`
-  (their login) and a `Candidate` (a specific job application recruiters
-  manage) are still two unrelated tables. Wiring "apply to a job" together
-  is the next piece of the candidate-facing side.
+- Registering a `CandidateAccount` creates a matching, unassigned (`job_id`
+  null) `Candidate` row so recruiters see them on the Candidates list right
+  away (linked via `Candidate.candidate_account_id`) — but that's as far as
+  the linkage goes today. There's no "apply to a job" flow yet to attach a
+  candidate to a specific posting, so every self-registered candidate stays
+  unassigned until a recruiter manually assigns them a job.
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
 - Resume/onboarding-document storage is local disk under `backend/uploads/`

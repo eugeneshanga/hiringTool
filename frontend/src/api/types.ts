@@ -92,6 +92,9 @@ export interface Candidate {
   phone: string | null
   job_id: number | null
   job_title: string | null
+  // Set when this row was created by a candidate self-registering
+  // (CandidateAccount), rather than added by hand by a recruiter.
+  candidate_account_id: number | null
   stage: Stage
   status: string
   interviewer: string | null

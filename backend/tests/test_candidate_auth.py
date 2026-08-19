@@ -80,3 +80,32 @@ def test_legacy_token_without_type_claim_still_works_on_recruiter_routes(client,
 
     resp = client.get('/api/auth/me', headers={'Authorization': f'Bearer {legacy_token}'})
     assert resp.status_code == 200
+
+
+def test_registering_adds_candidate_to_recruiter_list(client, auth_headers):
+    """A self-registered candidate should show up for recruiters right away,
+    unassigned to any job — same as one added by hand."""
+    register = client.post('/api/candidate-auth/register', json={
+        'first_name': 'Jane', 'last_name': 'Doe', 'email': 'jane@example.com', 'password': 'password123',
+    })
+    account_id = register.get_json()['candidate']['id']
+
+    listed = client.get('/api/candidates', headers=auth_headers).get_json()
+    matches = [c for c in listed if c['candidate_account_id'] == account_id]
+    assert len(matches) == 1
+    assert matches[0]['name'] == 'Jane Doe'
+    assert matches[0]['email'] == 'jane@example.com'
+    assert matches[0]['job_id'] is None
+
+
+def test_logging_in_does_not_create_a_second_candidate_row(client, auth_headers):
+    payload = {'first_name': 'Jane', 'last_name': 'Doe', 'email': 'jane@example.com', 'password': 'password123'}
+    register = client.post('/api/candidate-auth/register', json=payload)
+    account_id = register.get_json()['candidate']['id']
+
+    client.post('/api/candidate-auth/login', json={'email': payload['email'], 'password': payload['password']})
+    client.post('/api/candidate-auth/login', json={'email': payload['email'], 'password': payload['password']})
+
+    listed = client.get('/api/candidates', headers=auth_headers).get_json()
+    matches = [c for c in listed if c['candidate_account_id'] == account_id]
+    assert len(matches) == 1
