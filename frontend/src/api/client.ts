@@ -159,7 +159,14 @@ export const api = {
     request<AvailableMeetingStage[]>(`/api/jobs/${jobId}/meeting-stages/available`),
   createMeetingStage: (
     jobId: number,
-    data: { meeting_type: string; stage_name: string; duration_minutes?: number | null },
+    data: {
+      meeting_type: string
+      stage_name: string
+      duration_minutes?: number | null
+      default_capacity?: number | null
+      location?: string | null
+      instructions?: string | null
+    },
   ) =>
     request<MeetingStageTemplate>(`/api/jobs/${jobId}/meeting-stages`, {
       method: 'POST',
@@ -172,6 +179,9 @@ export const api = {
       meeting_type?: string
       stage_name?: string
       duration_minutes?: number | null
+      default_capacity?: number | null
+      location?: string | null
+      instructions?: string | null
       scheduling_window_days?: number
     },
   ) =>

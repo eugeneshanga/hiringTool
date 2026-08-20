@@ -104,6 +104,15 @@ def update_candidate(candidate_id):
     if 'job_id' in data and data['job_id'] is not None and not Job.query.get(data['job_id']):
         return jsonify({"error": f"no job with id {data['job_id']}"}), 400
 
+    # Once a candidate is linked to their own account, name/email/phone are
+    # read live from it (see Candidate.display_name etc. in models.py) — a
+    # recruiter PATCHing these here would otherwise appear to succeed but
+    # have no visible effect, which is worse than just saying no.
+    if candidate.candidate_account_id is not None and any(f in data for f in ('name', 'email', 'phone')):
+        return jsonify({
+            "error": "this candidate's name/email/phone are managed by their own account and can't be edited here"
+        }), 400
+
     for field in (
         'name', 'email', 'phone', 'job_id', 'stage', 'status', 'interviewer', 'scheduled',
         'city', 'state', 'source',
@@ -231,7 +240,7 @@ def download_all_documents(candidate_id):
                 arcname=document.original_filename,
             )
     buffer.seek(0)
-    return send_file(buffer, download_name=f'{candidate.name} - documents.zip', as_attachment=True)
+    return send_file(buffer, download_name=f'{candidate.display_name} - documents.zip', as_attachment=True)
 
 
 # --- Pre-screening answers ----------------------------------------------------

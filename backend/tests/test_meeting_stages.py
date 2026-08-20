@@ -92,3 +92,76 @@ def test_scheduling_window_days_rejects_negative(client, auth_headers, job, meet
         json={'scheduling_window_days': -1},
     )
     assert resp.status_code == 400
+
+
+def test_create_in_person_orientation_stores_capacity_and_address(client, auth_headers, job):
+    resp = client.post(f'/api/jobs/{job.id}/meeting-stages', headers=auth_headers, json={
+        'meeting_type': 'In-person orientation',
+        'stage_name': 'Orientation',
+        'default_capacity': 4,
+        'location': '123 Main St',
+        'instructions': 'Ask for the front desk.',
+    })
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert body['default_capacity'] == 4
+    assert body['location'] == '123 Main St'
+    assert body['instructions'] == 'Ask for the front desk.'
+
+
+def test_create_stage_rejects_non_positive_default_capacity(client, auth_headers, job):
+    resp = client.post(f'/api/jobs/{job.id}/meeting-stages', headers=auth_headers, json={
+        'meeting_type': 'In-person orientation', 'stage_name': 'Orientation', 'default_capacity': 0,
+    })
+    assert resp.status_code == 400
+    assert 'default_capacity' in resp.get_json()['error']
+
+
+def test_create_stage_blank_location_and_instructions_store_as_null(client, auth_headers, job):
+    """Mirrors how Candidate/Job routes elsewhere in the app treat an
+    empty-string optional field as "not set" rather than storing whitespace."""
+    resp = client.post(f'/api/jobs/{job.id}/meeting-stages', headers=auth_headers, json={
+        'meeting_type': 'In-person interview', 'stage_name': 'Onsite', 'location': '   ', 'instructions': '',
+    })
+    assert resp.status_code == 201
+    body = resp.get_json()
+    assert body['location'] is None
+    assert body['instructions'] is None
+
+
+def test_update_stage_patches_capacity_and_address(client, auth_headers, job, meeting_stage):
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'default_capacity': 6, 'location': '456 Oak Ave', 'instructions': 'Park in the back.'},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['default_capacity'] == 6
+    assert body['location'] == '456 Oak Ave'
+    assert body['instructions'] == 'Park in the back.'
+
+    # Clearing it back out (null / empty string) must actually clear it, not
+    # leave the previous value stuck.
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'default_capacity': None, 'location': ''},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['default_capacity'] is None
+    assert body['location'] is None
+
+
+def test_available_meeting_stages_include_capacity_and_address(client, auth_headers, job):
+    other_job = client.post('/api/jobs', headers=auth_headers, json={'title': 'Other Job'}).get_json()
+    client.post(f"/api/jobs/{other_job['id']}/meeting-stages", headers=auth_headers, json={
+        'meeting_type': 'In-person orientation', 'stage_name': 'Orientation',
+        'default_capacity': 5, 'location': '789 Elm St', 'instructions': 'Bring ID.',
+    })
+
+    resp = client.get(f'/api/jobs/{job.id}/meeting-stages/available', headers=auth_headers)
+    assert resp.status_code == 200
+    option = next(o for o in resp.get_json() if o['stage_name'] == 'Orientation')
+    assert option['default_capacity'] == 5
+    assert option['location'] == '789 Elm St'
+    assert option['instructions'] == 'Bring ID.'

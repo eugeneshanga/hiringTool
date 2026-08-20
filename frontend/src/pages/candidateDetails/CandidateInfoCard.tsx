@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, ApiError, openBlob } from '../../api/client'
 import { Modal } from '../../components/Modal'
 import { copyText } from '../../lib/clipboard'
+import { formatPhone } from '../../lib/formatPhone'
 import type { CandidateDetail, Job } from '../../api/types'
 
 interface CandidateInfoCardProps {
@@ -105,8 +106,13 @@ export function CandidateInfoCard({ candidate, onCandidateChange, onError }: Can
           </div>
           {candidate.phone && (
             <div className="candidate-contact-row">
-              <span>{candidate.phone}</span>
-              <button type="button" className="icon-button" onClick={() => copyText(candidate.phone!)} aria-label="Copy phone">
+              <span>{formatPhone(candidate.phone)}</span>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => copyText(formatPhone(candidate.phone))}
+                aria-label="Copy phone"
+              >
                 ⧉
               </button>
             </div>

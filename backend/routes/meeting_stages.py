@@ -55,9 +55,27 @@ def get_available_meeting_stages(job_id):
                 "meeting_type": t.meeting_type,
                 "stage_name": t.stage_name,
                 "duration_minutes": t.duration_minutes,
+                "default_capacity": t.default_capacity,
+                "location": t.location,
+                "instructions": t.instructions,
             }
         )
     return jsonify(options), 200
+
+
+def _parse_positive_int(value, field_name):
+    """Returns (parsed_value_or_None, error_message_or_None). An empty
+    string or None means "not set" (valid, clears the field) rather than an
+    error - only a present-but-non-positive-integer value is rejected."""
+    if value is None or value == '':
+        return None, None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None, f"{field_name} must be a positive integer"
+    if parsed < 1:
+        return None, f"{field_name} must be a positive integer"
+    return parsed, None
 
 
 @meeting_stages_bp.route('/api/jobs/<int:job_id>/meeting-stages', methods=['POST'])
@@ -83,6 +101,10 @@ def create_meeting_stage(job_id):
     else:
         duration_minutes = None
 
+    default_capacity, error = _parse_positive_int(data.get('default_capacity'), 'default_capacity')
+    if error:
+        return jsonify({"error": error}), 400
+
     max_order = (
         db.session.query(db.func.max(MeetingStageTemplate.sort_order))
         .filter_by(job_id=job_id)
@@ -93,6 +115,9 @@ def create_meeting_stage(job_id):
         meeting_type=meeting_type,
         stage_name=stage_name,
         duration_minutes=duration_minutes,
+        default_capacity=default_capacity,
+        location=(data.get('location') or '').strip() or None,
+        instructions=(data.get('instructions') or '').strip() or None,
         sort_order=(max_order + 1) if max_order is not None else 0,
     )
     db.session.add(template)
@@ -128,9 +153,21 @@ def update_meeting_stage(job_id, template_id):
         if window < 0:
             return jsonify({"error": "scheduling_window_days cannot be negative"}), 400
         data['scheduling_window_days'] = window
+    if 'default_capacity' in data:
+        parsed, error = _parse_positive_int(data['default_capacity'], 'default_capacity')
+        if error:
+            return jsonify({"error": error}), 400
+        data['default_capacity'] = parsed
+    if 'location' in data:
+        data['location'] = (data['location'] or '').strip() or None
+    if 'instructions' in data:
+        data['instructions'] = (data['instructions'] or '').strip() or None
 
     old_stage_name = template.stage_name
-    for field in ('meeting_type', 'stage_name', 'duration_minutes', 'scheduling_window_days'):
+    for field in (
+        'meeting_type', 'stage_name', 'duration_minutes', 'default_capacity',
+        'location', 'instructions', 'scheduling_window_days',
+    ):
         if field in data:
             setattr(template, field, data[field])
 

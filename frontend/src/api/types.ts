@@ -41,6 +41,12 @@ export interface MeetingStageTemplate {
   meeting_type: StageMeetingType
   stage_name: string
   duration_minutes: number | null
+  // Only meaningful for 'In-person orientation' - a default that pre-fills
+  // a new session's capacity, not an enforced cap (see models.py).
+  default_capacity: number | null
+  // Only meaningful for the two in-person types.
+  location: string | null
+  instructions: string | null
   scheduling_window_days: number
   sort_order: number
 }
@@ -51,6 +57,9 @@ export interface AvailableMeetingStage {
   meeting_type: StageMeetingType
   stage_name: string
   duration_minutes: number | null
+  default_capacity: number | null
+  location: string | null
+  instructions: string | null
 }
 
 export interface Job {

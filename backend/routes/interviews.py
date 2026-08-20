@@ -164,7 +164,7 @@ def enroll_candidate(interview_id):
         return jsonify({"error": f"no candidate with id {candidate_id}"}), 400
 
     if candidate in interview.candidates:
-        return jsonify({"error": f"{candidate.name} is already enrolled in this interview"}), 400
+        return jsonify({"error": f"{candidate.display_name} is already enrolled in this interview"}), 400
 
     if len(interview.candidates) >= interview.capacity:
         return jsonify({"error": "this interview is already at capacity"}), 400

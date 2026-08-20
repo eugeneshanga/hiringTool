@@ -51,6 +51,40 @@ class User(db.Model):
         }
 
 
+class CalendarConnection(db.Model):
+    """A recruiter/interviewer's connected Google Calendar. Belongs to a User
+    (not a Job or MeetingStageTemplate) — one connection is reusable across
+    every stage that User is assigned to interview for, so it only needs to
+    be connected once. unique=True on user_id means reconnecting overwrites
+    the existing row (upsert) instead of creating a second connection."""
+    __tablename__ = 'calendar_connections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
+    google_email = db.Column(db.String(120), nullable=False)
+    # Encrypted at rest with Fernet (see google_calendar.encrypt_token) — this
+    # is a long-lived credential (until revoked), unlike access_token below,
+    # which is short-lived (~1 hour) and low-value if it ever leaked, so it's
+    # kept in plaintext the same way a session token would be.
+    encrypted_refresh_token = db.Column(db.Text, nullable=False)
+    access_token = db.Column(db.Text, nullable=True)
+    token_expiry = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # backref='calendar_connection' mirrors CandidateAccount.candidates below
+    # (backref='candidate_account') — the FK lives here, User just gets the
+    # reverse accessor. uselist=False since it's one connection per user.
+    user = db.relationship('User', backref=db.backref('calendar_connection', uselist=False))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "google_email": self.google_email,
+            "created_at": iso_utc(self.created_at),
+        }
+
+
 class CandidateAccount(db.Model):
     """A prospective candidate's own login — distinct from Candidate, which is
     the per-job application/pipeline record recruiters manage. One person can
@@ -66,6 +100,10 @@ class CandidateAccount(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # backref='candidate_account' mirrors Job.candidates below (backref='job') —
+    # the FK lives on Candidate, this side just gets the reverse accessor.
+    candidates = db.relationship('Candidate', backref='candidate_account', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -162,6 +200,17 @@ class MeetingStageTemplate(db.Model):
     meeting_type = db.Column(db.String(50), nullable=False)
     stage_name = db.Column(db.String(100), nullable=False)  # e.g. CHHA, Orientation
     duration_minutes = db.Column(db.Integer)  # only meaningful for interview-type stages
+    # Only meaningful for 'In-person orientation' - how many candidates a
+    # single session of this stage is meant to hold. This is a *default* the
+    # frontend pre-fills the capacity field with when adding a session for
+    # this stage - each session still stores its own Interview.capacity and
+    # can be set differently after the fact; nothing here enforces a cap.
+    default_capacity = db.Column(db.Integer)
+    # Only meaningful for the two in-person types. Same "default, not
+    # enforced" relationship to Interview.location as default_capacity has to
+    # Interview.capacity above.
+    location = db.Column(db.String(255))
+    instructions = db.Column(db.Text)  # optional - directions, suite number, etc.
     # How far in advance a candidate can book a session for this stage.
     scheduling_window_days = db.Column(db.Integer, default=7, nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)
@@ -185,6 +234,9 @@ class MeetingStageTemplate(db.Model):
             "meeting_type": self.meeting_type,
             "stage_name": self.stage_name,
             "duration_minutes": self.duration_minutes,
+            "default_capacity": self.default_capacity,
+            "location": self.location,
+            "instructions": self.instructions,
             "scheduling_window_days": self.scheduling_window_days,
             "sort_order": self.sort_order,
         }
@@ -270,7 +322,7 @@ class Interview(db.Model):
             "scheduled_end": iso_utc(self.scheduled_end),
             "capacity": self.capacity,
             "scheduled_count": len(self.candidates),
-            "candidates": [{"id": c.id, "name": c.name} for c in self.candidates],
+            "candidates": [{"id": c.id, "name": c.display_name} for c in self.candidates],
             "created_at": iso_utc(self.created_at)
         }
 
@@ -279,6 +331,18 @@ class Candidate(db.Model):
     __tablename__ = 'candidates'
 
     id = db.Column(db.Integer, primary_key=True)
+    # For an account-linked candidate (candidate_account_id set), these three
+    # are a point-in-time snapshot taken at registration — NOT the source of
+    # truth. display_name/display_email/display_phone below are: they read
+    # live from candidate_account when linked, and everything that surfaces a
+    # candidate's contact info (to_dict, to_detail_dict, Interview.to_dict's
+    # enrolled-candidate list) goes through those, not these columns directly.
+    # The columns stay NOT NULL and still get written on creation because
+    # hand-added candidates (candidate_account_id is None) have nowhere else
+    # to store their info — they're the only source of truth for those rows,
+    # and dropping them would break that case entirely, not just the linked
+    # one. They also act as a fallback if candidate_account is ever missing
+    # (e.g. a deleted account) instead of surfacing an empty/null contact.
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(20))
@@ -317,12 +381,24 @@ class Candidate(db.Model):
     def location(self):
         return ", ".join(filter(None, [self.city, self.state])) or None
 
+    @property
+    def display_name(self):
+        return self.candidate_account.name if self.candidate_account else self.name
+
+    @property
+    def display_email(self):
+        return self.candidate_account.email if self.candidate_account else self.email
+
+    @property
+    def display_phone(self):
+        return self.candidate_account.phone if self.candidate_account else self.phone
+
     def to_dict(self):
         return {
             "id": self.id,
-            "name": self.name,
-            "email": self.email,
-            "phone": self.phone,
+            "name": self.display_name,
+            "email": self.display_email,
+            "phone": self.display_phone,
             "job_id": self.job_id,
             "job_title": self.job.title if self.job else None,
             "candidate_account_id": self.candidate_account_id,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError, saveBlob } from '../api/client'
 import type { Candidate, Job, Stage } from '../api/types'
+import { formatPhone } from '../lib/formatPhone'
 
 const STAGES: Stage[] = ['Applied', 'Interview', 'Offer', 'Hired', 'Rejected']
 
@@ -227,16 +228,24 @@ export function CandidatesPage() {
               {rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel }) => (
                 <tr key={c.id} className="clickable-row" onClick={() => navigate(`/candidates/${c.id}`)}>
                   <td>
-                    {c.name}
-                    {c.candidate_account_id != null && (
-                      <span
-                        className="chip"
-                        style={{ marginLeft: '0.5rem' }}
-                        title="Created their own account by registering"
-                      >
-                        Self-registered
-                      </span>
-                    )}
+                    <div className="candidate-cell">
+                      <div className="candidate-cell-name">
+                        {c.name}
+                        {c.candidate_account_id != null && (
+                          <span
+                            className="chip"
+                            style={{ marginLeft: '0.5rem' }}
+                            title="Created their own account by registering"
+                          >
+                            Self-registered
+                          </span>
+                        )}
+                      </div>
+                      <div className="candidate-cell-contact subtle">
+                        <div>{c.email}</div>
+                        {c.phone && <div>{formatPhone(c.phone)}</div>}
+                      </div>
+                    </div>
                   </td>
                   <td>{c.job_title ?? '—'}</td>
                   <td>{stageLabel}</td>

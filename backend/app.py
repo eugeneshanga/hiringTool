@@ -8,6 +8,7 @@ from models import db, User
 from routes.candidates import candidates_bp
 from routes.jobs import jobs_bp
 from routes.auth import auth_bp
+from routes.calendar_auth import calendar_auth_bp
 from routes.candidate_auth import candidate_auth_bp
 from routes.interviews import interviews_bp
 from routes.meeting_stages import meeting_stages_bp
@@ -49,6 +50,7 @@ def create_app(config_overrides=None):
     app.register_blueprint(candidates_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(calendar_auth_bp)
     app.register_blueprint(candidate_auth_bp)
     app.register_blueprint(interviews_bp)
     app.register_blueprint(meeting_stages_bp)

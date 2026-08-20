@@ -41,6 +41,8 @@ export function StageSchedulePage() {
   const [error, setError] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [enrollSelection, setEnrollSelection] = useState<Record<number, string>>({})
+  const [showFilter, setShowFilter] = useState<'upcoming' | 'past'>('upcoming')
+  const [dateSortDir, setDateSortDir] = useState<'asc' | 'desc'>('asc')
 
   const [showAddSession, setShowAddSession] = useState(false)
   const [date, setDate] = useState('')
@@ -92,20 +94,36 @@ export function StageSchedulePage() {
 
   // Prefer the real FK; fall back to a stage_name match only for sessions
   // created before it existed (or ad-hoc ones with no template at all).
-  const stageSessions = sessions
-    .filter(
-      (s) =>
-        s.meeting_stage_template_id === template.id ||
-        (s.meeting_stage_template_id == null && s.stage_name === template.stage_name),
+  const stageSessions = sessions.filter(
+    (s) =>
+      s.meeting_stage_template_id === template.id ||
+      (s.meeting_stage_template_id == null && s.stage_name === template.stage_name),
+  )
+
+  // "Show" filter + Date-column sort are both client-side over the sessions
+  // already loaded above - no separate API call for either.
+  const now = new Date().toISOString()
+  const visibleSessions = stageSessions
+    .filter((s) => (showFilter === 'upcoming' ? s.scheduled_start >= now : s.scheduled_start < now))
+    .sort((a, b) =>
+      dateSortDir === 'asc'
+        ? a.scheduled_start.localeCompare(b.scheduled_start)
+        : b.scheduled_start.localeCompare(a.scheduled_start),
     )
-    .sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start))
+
+  function toggleDateSort() {
+    setDateSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+  }
 
   function openAddSession() {
     setDate(toLocalDateValue(new Date()))
     setStartTime('09:00')
     setEndTime('10:00')
-    setLocation('')
-    setCapacity(1)
+    // Pre-fill from the stage's own defaults (set in "Create new meeting
+    // stage" / editable there today) - just a starting point, not enforced;
+    // this session can still be edited to something else before saving.
+    setLocation(template.location ?? '')
+    setCapacity(template.default_capacity ?? 1)
     setShowAddSession(true)
   }
 
@@ -203,22 +221,39 @@ export function StageSchedulePage() {
           </button>
         </div>
 
+        <div className="sessions-show-row">
+          <label className="sessions-show-label">
+            Show
+            <select value={showFilter} onChange={(e) => setShowFilter(e.target.value as 'upcoming' | 'past')}>
+              <option value="upcoming">Upcoming</option>
+              <option value="past">Past</option>
+            </select>
+          </label>
+        </div>
+
         {loadingSessions ? (
           <p className="subtle">Loading…</p>
-        ) : stageSessions.length === 0 ? (
-          <p className="subtle">No sessions scheduled for this stage yet.</p>
+        ) : visibleSessions.length === 0 ? (
+          <p className="subtle">
+            {showFilter === 'upcoming' ? 'No upcoming sessions for this stage.' : 'No past sessions for this stage.'}
+          </p>
         ) : (
           <table className="data-table">
             <thead>
               <tr>
-                <th>Date</th>
+                <th>
+                  <button type="button" className="sort-header" onClick={toggleDateSort}>
+                    Date
+                    <span className="sort-arrow">{dateSortDir === 'asc' ? '↑' : '↓'}</span>
+                  </button>
+                </th>
                 <th>Time</th>
                 <th>Scheduled</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {stageSessions.map((session) => {
+              {visibleSessions.map((session) => {
                 const enrolledIds = new Set(session.candidates.map((c) => c.id))
                 const availableCandidates = candidates.filter((c) => !enrolledIds.has(c.id))
                 const isExpanded = expandedId === session.id

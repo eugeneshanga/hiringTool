@@ -94,6 +94,13 @@ Serves on **http://localhost:5173**. Reads the API URL from
 - `database.env` (repo root) — set `DATABASE_URL` here to point at Postgres.
   Left unset, `backend/config.py` falls back to a local SQLite file
   (`backend/hiringtool_dev.db`).
+- `database.env` also holds Google Calendar OAuth config: `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `CALENDAR_FRONTEND_REDIRECT_URL`
+  (where the OAuth callback sends the browser back to), and
+  `CALENDAR_ENCRYPTION_KEY` (a Fernet key encrypting stored refresh tokens at
+  rest — generate one with
+  `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`;
+  rotating it invalidates every stored refresh token).
 - `frontend/.env` — `VITE_API_URL`, the backend's address.
 
 Neither file is committed (see `.gitignore`); both have `.example`-style
@@ -138,6 +145,15 @@ defaults documented above.
   Enrolling a candidate automatically advances their stage to "Interview"
   (manual overrides on the Candidates page still work). Clicking a session
   opens its meeting stage editor.
+- **Google Calendar connection (Phase 1)** — a `User` can connect their own
+  Google Calendar (`GET /api/auth/google/connect` → Google consent → `GET
+  /api/auth/google/callback`, `DELETE /api/auth/google/disconnect`, `GET
+  /api/auth/google/status`). One connection per `User`, reusable across every
+  stage they interview for — not tied to a job or stage. Refresh tokens are
+  encrypted at rest (`CalendarConnection.encrypted_refresh_token`, Fernet);
+  `google_calendar.get_valid_access_token(user)` is the helper later phases
+  should call to get a live access token, refreshing automatically. Nothing
+  reads or writes actual calendar events yet — see Known gaps.
 
 ## Known gaps
 
@@ -154,6 +170,12 @@ defaults documented above.
   unassigned until a recruiter manually assigns them a job.
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
+- Google Calendar integration only has the connect/disconnect plumbing so
+  far (see Features above) — no UI to connect from yet, no availability
+  windows, and nothing actually reads/writes Google Calendar events for
+  scheduling. Also undecided: whether an already-booked `Interview` should
+  be affected if the interviewer later disconnects their calendar or changes
+  their availability.
 - Resume/onboarding-document storage is local disk under `backend/uploads/`
   — fine for one dev machine, not for a real multi-instance deployment.
 - Jobs list has no kebab/bulk actions, and there's no public job-board/embed
