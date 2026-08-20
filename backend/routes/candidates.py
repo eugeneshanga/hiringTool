@@ -8,20 +8,18 @@ from dateutils import parse_datetime
 from file_storage import candidate_file_path, delete_candidate_file, delete_candidate_files, save_candidate_file
 from validation import validate_choice
 from models import (
-    CANDIDATE_DOCUMENT_TYPES,
     CandidateDocument,
     CandidateScreeningAnswer,
     CandidateStageProgress,
     Candidate,
     Job,
+    OnboardingDocumentItem,
     ScreeningQuestion,
     MeetingStageTemplate,
     db,
 )
 
 candidates_bp = Blueprint('candidates', __name__)
-
-DOC_TYPE_KEYS = {doc_type for doc_type, _label in CANDIDATE_DOCUMENT_TYPES}
 
 
 @candidates_bp.route('/api/candidates', methods=['GET'])
@@ -171,30 +169,43 @@ def download_resume(candidate_id):
 @candidates_bp.route('/api/candidates/<int:candidate_id>/documents', methods=['GET'])
 @jwt_required()
 def list_document_types(candidate_id):
-    """The fixed onboarding checklist, each entry annotated with whatever the
-    candidate has uploaded for it (if anything)."""
+    """The onboarding checklist for this candidate's job — every onboarding
+    item across all of the job's stages (see Job.onboarding_items), each
+    entry annotated with whatever the candidate has uploaded for it (if
+    anything). Empty if the candidate has no job, or the job's stages define
+    no onboarding items - the frontend hides the whole section in that case."""
     candidate = Candidate.query.get_or_404(candidate_id)
-    uploaded = {d.doc_type: d.to_dict() for d in candidate.documents}
+    uploaded = {d.onboarding_item_id: d.to_dict() for d in candidate.documents}
+    items = candidate.job.onboarding_items if candidate.job else []
     return jsonify(
         [
-            {"doc_type": doc_type, "label": label, "submission": uploaded.get(doc_type)}
-            for doc_type, label in CANDIDATE_DOCUMENT_TYPES
+            {
+                "item_id": item.id,
+                "description": item.description,
+                "type": item.item_type,
+                "required": item.required,
+                "submission": uploaded.get(item.id),
+            }
+            for item in items
         ]
     ), 200
 
 
-@candidates_bp.route('/api/candidates/<int:candidate_id>/documents/<doc_type>', methods=['POST'])
+@candidates_bp.route('/api/candidates/<int:candidate_id>/documents/<int:item_id>', methods=['POST'])
 @jwt_required()
-def upload_document(candidate_id, doc_type):
+def upload_document(candidate_id, item_id):
     candidate = Candidate.query.get_or_404(candidate_id)
-    if doc_type not in DOC_TYPE_KEYS:
-        return jsonify({"error": f"doc_type must be one of {sorted(DOC_TYPE_KEYS)}"}), 400
+    item = OnboardingDocumentItem.query.get_or_404(item_id)
+    if not candidate.job or item.meeting_stage_template.job_id != candidate.job_id:
+        return jsonify({"error": "onboarding item does not belong to this candidate's job"}), 400
 
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
 
-    existing = CandidateDocument.query.filter_by(candidate_id=candidate.id, doc_type=doc_type).first()
+    existing = CandidateDocument.query.filter_by(
+        candidate_id=candidate.id, onboarding_item_id=item.id
+    ).first()
     original_filename, stored_filename = save_candidate_file(candidate.id, file)
 
     if existing:
@@ -205,7 +216,7 @@ def upload_document(candidate_id, doc_type):
     else:
         document = CandidateDocument(
             candidate_id=candidate.id,
-            doc_type=doc_type,
+            onboarding_item_id=item.id,
             original_filename=original_filename,
             stored_filename=stored_filename,
         )
@@ -215,10 +226,12 @@ def upload_document(candidate_id, doc_type):
     return jsonify(document.to_dict()), 200
 
 
-@candidates_bp.route('/api/candidates/<int:candidate_id>/documents/<doc_type>', methods=['GET'])
+@candidates_bp.route('/api/candidates/<int:candidate_id>/documents/<int:item_id>', methods=['GET'])
 @jwt_required()
-def download_document(candidate_id, doc_type):
-    document = CandidateDocument.query.filter_by(candidate_id=candidate_id, doc_type=doc_type).first_or_404()
+def download_document(candidate_id, item_id):
+    document = CandidateDocument.query.filter_by(
+        candidate_id=candidate_id, onboarding_item_id=item_id
+    ).first_or_404()
     return send_file(
         candidate_file_path(candidate_id, document.stored_filename),
         download_name=document.original_filename,
@@ -315,6 +328,10 @@ def update_stage_progress(candidate_id, template_id):
         progress.location = data['location']
     if 'notes' in data:
         progress.notes = data['notes']
+    if 'cancellation_reason' in data:
+        progress.cancellation_reason = data['cancellation_reason']
+    if 'prompt_reschedule' in data:
+        progress.prompt_reschedule = data['prompt_reschedule']
     for score_field in ('score_communication', 'score_energy', 'score_relevant_experience'):
         if score_field in data:
             value = data[score_field]

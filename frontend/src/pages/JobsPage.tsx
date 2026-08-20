@@ -117,7 +117,14 @@ export function JobsPage() {
                   {job.meeting_stages.length > 0 && (
                     <div className="chip-list">
                       {job.meeting_stages.map((stage) => (
-                        <span key={stage.id} className="chip-row">
+                        <span
+                          key={stage.id}
+                          className="chip-row chip-row-link"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`/jobs/${job.id}/meeting-stages/${stage.id}`)
+                          }}
+                        >
                           <span className="chip">{stage.meeting_type}</span> {stage.stage_name}
                         </span>
                       ))}

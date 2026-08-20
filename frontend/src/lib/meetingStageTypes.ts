@@ -33,6 +33,13 @@ export function needsPreScreen(type: StageMeetingType | '') {
   return type !== 'In-person orientation'
 }
 
+// Onboarding document collection is only meaningful on an actual interview
+// stage - orientation and instant-meeting-link stages don't get an
+// "Onboarding" tab of their own.
+export function needsOnboarding(type: StageMeetingType | '') {
+  return type === 'Virtual interview' || type === 'In-person interview'
+}
+
 // Interview.meeting_type still uses the older, narrower vocabulary than
 // MeetingStageTemplate.meeting_type — map into it when scheduling a session
 // for a stage, since there's no exact one-to-one equivalent.

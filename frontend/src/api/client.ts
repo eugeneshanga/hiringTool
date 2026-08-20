@@ -4,9 +4,10 @@ import type {
   CandidateDetail,
   CandidateDocumentChecklistItem,
   CandidateDocumentSubmission,
-  CandidateDocumentType,
   Interview,
   Job,
+  OnboardingDocumentItem,
+  OnboardingItemType,
   ScreeningQuestion,
   MeetingStageTemplate,
   StageProgressStatus,
@@ -21,6 +22,12 @@ export interface ScreeningQuestionInput {
   question_label?: string | null
   answer_options?: string[]
   qualified_answers?: string[]
+}
+
+export interface OnboardingItemInput {
+  description: string
+  type?: OnboardingItemType
+  required?: boolean
 }
 
 const TOKEN_KEY = 'hiringtool_token'
@@ -147,16 +154,16 @@ export const api = {
 
   listDocumentChecklist: (candidateId: number) =>
     request<CandidateDocumentChecklistItem[]>(`/api/candidates/${candidateId}/documents`),
-  uploadDocument: (candidateId: number, docType: CandidateDocumentType, file: File) => {
+  uploadDocument: (candidateId: number, itemId: number, file: File) => {
     const form = new FormData()
     form.append('file', file)
     return requestForm<CandidateDocumentSubmission>(
-      `/api/candidates/${candidateId}/documents/${docType}`,
+      `/api/candidates/${candidateId}/documents/${itemId}`,
       form,
     )
   },
-  downloadDocument: (candidateId: number, docType: CandidateDocumentType) =>
-    requestBlob(`/api/candidates/${candidateId}/documents/${docType}`),
+  downloadDocument: (candidateId: number, itemId: number) =>
+    requestBlob(`/api/candidates/${candidateId}/documents/${itemId}`),
   downloadAllDocuments: (candidateId: number) =>
     requestBlob(`/api/candidates/${candidateId}/documents/download-all`),
 
@@ -180,6 +187,8 @@ export const api = {
       score_communication?: number | null
       score_energy?: number | null
       score_relevant_experience?: number | null
+      cancellation_reason?: string | null
+      prompt_reschedule?: boolean | null
     },
   ) =>
     request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}`, {
@@ -207,6 +216,29 @@ export const api = {
   deleteStageScreeningQuestion: (jobId: number, templateId: number, questionId: number) =>
     request<void>(
       `/api/jobs/${jobId}/meeting-stages/${templateId}/screening-questions/${questionId}`,
+      { method: 'DELETE' },
+    ),
+
+  listStageOnboardingItems: (jobId: number, templateId: number) =>
+    request<OnboardingDocumentItem[]>(`/api/jobs/${jobId}/meeting-stages/${templateId}/onboarding-items`),
+  createStageOnboardingItem: (jobId: number, templateId: number, data: OnboardingItemInput) =>
+    request<OnboardingDocumentItem>(`/api/jobs/${jobId}/meeting-stages/${templateId}/onboarding-items`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateStageOnboardingItem: (
+    jobId: number,
+    templateId: number,
+    itemId: number,
+    data: OnboardingItemInput,
+  ) =>
+    request<OnboardingDocumentItem>(
+      `/api/jobs/${jobId}/meeting-stages/${templateId}/onboarding-items/${itemId}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+    ),
+  deleteStageOnboardingItem: (jobId: number, templateId: number, itemId: number) =>
+    request<void>(
+      `/api/jobs/${jobId}/meeting-stages/${templateId}/onboarding-items/${itemId}`,
       { method: 'DELETE' },
     ),
 

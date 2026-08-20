@@ -132,6 +132,17 @@ export interface ScreeningQuestion {
   sort_order: number
 }
 
+export type OnboardingItemType = 'file_upload'
+
+export interface OnboardingDocumentItem {
+  id: number
+  meeting_stage_template_id: number
+  description: string
+  type: OnboardingItemType
+  required: boolean
+  sort_order: number
+}
+
 export interface CandidateScreeningAnswer {
   question_id: number
   question_text: string
@@ -154,27 +165,32 @@ export interface CandidateStage {
   score_communication: number | null
   score_energy: number | null
   score_relevant_experience: number | null
+  // Set together when a recruiter cancels via the "Cancel interview" modal.
+  // Recorded only - neither triggers any actual notification (see
+  // CandidateStageProgress in models.py).
+  cancellation_reason: string | null
+  prompt_reschedule: boolean | null
 }
-
-export type CandidateDocumentType = 'drivers_license' | 'nursing_license' | 'ssn_card' | 'xray_ppd'
 
 export interface CandidateDocumentSubmission {
   id: number
-  doc_type: CandidateDocumentType
+  onboarding_item_id: number
   original_filename: string
   uploaded_at: string
 }
 
 export interface CandidateDocumentChecklistItem {
-  doc_type: CandidateDocumentType
-  label: string
+  item_id: number
+  description: string
+  type: OnboardingItemType
+  required: boolean
   submission: CandidateDocumentSubmission | null
 }
 
 export interface CandidateDetail extends Candidate {
   screening_answers: CandidateScreeningAnswer[]
   stages: CandidateStage[]
-  documents: Partial<Record<CandidateDocumentType, CandidateDocumentSubmission>>
+  documents: Partial<Record<number, CandidateDocumentSubmission>>
 }
 
 export interface InterviewCandidate {

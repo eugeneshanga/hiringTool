@@ -83,8 +83,18 @@ export function StageTabs({ candidate, onCandidateChange, onError }: StageTabsPr
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
 
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [promptReschedule, setPromptReschedule] = useState(true)
+  const [cancellationReason, setCancellationReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+
   const activeStage: CandidateStage | null =
     candidate.stages.find((s) => s.meeting_stage_template_id === activeTemplateId) ?? null
+  // Orientation is typically in-person and group-scheduled (see the
+  // "Sessions" list on the stage's own Schedule tab) rather than a 1:1
+  // interview slot - the interview-specific scorecard/notes panel and
+  // cancel flow don't apply to it, so it only gets Schedule + Send message.
+  const isOrientation = activeStage?.meeting_type === 'In-person orientation'
 
   useEffect(() => {
     if (!activeStage) return
@@ -111,13 +121,28 @@ export function StageTabs({ candidate, onCandidateChange, onError }: StageTabsPr
     }
   }
 
-  async function handleCancelStage() {
+  function openCancelModal() {
+    setPromptReschedule(true)
+    setCancellationReason('')
+    setShowCancelModal(true)
+  }
+
+  async function handleConfirmCancel() {
     if (activeTemplateId == null) return
-    if (!confirm('Cancel this stage?')) return
+    setCancelling(true)
     try {
-      onCandidateChange(await api.updateStageProgress(candidate.id, activeTemplateId, { status: 'Cancelled' }))
+      onCandidateChange(
+        await api.updateStageProgress(candidate.id, activeTemplateId, {
+          status: 'Cancelled',
+          prompt_reschedule: promptReschedule,
+          cancellation_reason: cancellationReason.trim() || null,
+        }),
+      )
+      setShowCancelModal(false)
     } catch (err) {
       onError(err instanceof ApiError ? err.message : 'Failed to cancel stage')
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -174,86 +199,104 @@ export function StageTabs({ candidate, onCandidateChange, onError }: StageTabsPr
           <p className="subtle">Stage</p>
           <div className="stage-tab-heading">
             <strong>{activeStage.stage_name}</strong>
-            <span className={`status-badge status-${activeStage.status.replace(/\s+/g, '-').toLowerCase()}`}>
-              {activeStage.status}
-            </span>
-          </div>
-          {activeStage.scheduled_at ? (
-            <p>Scheduled for {formatDateTime(activeStage.scheduled_at)}</p>
-          ) : (
-            <p className="subtle">Not yet scheduled</p>
-          )}
-          {candidate.source && <p className="subtle">Source: {candidate.source}</p>}
-
-          <div className="page-header-actions" style={{ marginBottom: '1rem' }}>
-            <button type="button" className="button-secondary" onClick={handleCancelStage}>
-              Cancel
-            </button>
-            <button type="button" className="button-secondary" onClick={openReschedule}>
-              Reschedule
-            </button>
-            <button type="button" className="button-secondary" onClick={handleSendMessage}>
-              Send message
-            </button>
+            {isOrientation && !activeStage.scheduled_at ? (
+              <span className="status-badge">No status</span>
+            ) : (
+              <span className={`status-badge status-${activeStage.status.replace(/\s+/g, '-').toLowerCase()}`}>
+                {activeStage.status}
+              </span>
+            )}
           </div>
 
-          <div className="interview-review">
-            <div className="video-placeholder">Recording not available</div>
-            <div className="interview-review-fields">
-              <label>
-                Status
-                <select
-                  value={stageForm.status}
-                  onChange={(e) => setStageForm((f) => ({ ...f, status: e.target.value as StageProgressStatus }))}
-                >
-                  {STAGE_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Notes
-                <textarea
-                  rows={4}
-                  value={stageForm.notes}
-                  onChange={(e) => setStageForm((f) => ({ ...f, notes: e.target.value }))}
-                />
-              </label>
-
-              <div className="score-card">
-                <h3>Score card</h3>
-                <ScoreRow
-                  label="Communication"
-                  value={stageForm.score_communication}
-                  onChange={(n) => setStageForm((f) => ({ ...f, score_communication: n }))}
-                />
-                <ScoreRow
-                  label="Energy"
-                  value={stageForm.score_energy}
-                  onChange={(n) => setStageForm((f) => ({ ...f, score_energy: n }))}
-                />
-                <ScoreRow
-                  label="Relevant experience"
-                  value={stageForm.score_relevant_experience}
-                  onChange={(n) => setStageForm((f) => ({ ...f, score_relevant_experience: n }))}
-                />
-              </div>
-
-              <div className="save-control">
-                <button type="button" onClick={handleSaveStage} disabled={savingStage}>
-                  {savingStage ? 'Saving…' : 'Save'}
-                </button>
-                {stageSaved.saved && <span className="save-confirmation">✓ Saved</span>}
-              </div>
+          {isOrientation ? (
+            <div className="page-header-actions" style={{ marginBottom: '1rem' }}>
+              <button type="button" onClick={openReschedule}>
+                Schedule
+              </button>
+              <button type="button" className="button-secondary" onClick={handleSendMessage}>
+                Send message
+              </button>
             </div>
-          </div>
+          ) : (
+            <>
+              {activeStage.scheduled_at ? (
+                <p>Scheduled for {formatDateTime(activeStage.scheduled_at)}</p>
+              ) : (
+                <p className="subtle">Not yet scheduled</p>
+              )}
+              {candidate.source && <p className="subtle">Source: {candidate.source}</p>}
+
+              <div className="page-header-actions" style={{ marginBottom: '1rem' }}>
+                <button type="button" className="button-secondary" onClick={openCancelModal}>
+                  Cancel
+                </button>
+                <button type="button" className="button-secondary" onClick={openReschedule}>
+                  Reschedule
+                </button>
+                <button type="button" className="button-secondary" onClick={handleSendMessage}>
+                  Send message
+                </button>
+              </div>
+
+              <div className="interview-review">
+                <div className="video-placeholder">Recording not available</div>
+                <div className="interview-review-fields">
+                  <label>
+                    Status
+                    <select
+                      value={stageForm.status}
+                      onChange={(e) => setStageForm((f) => ({ ...f, status: e.target.value as StageProgressStatus }))}
+                    >
+                      {STAGE_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Notes
+                    <textarea
+                      rows={4}
+                      value={stageForm.notes}
+                      onChange={(e) => setStageForm((f) => ({ ...f, notes: e.target.value }))}
+                    />
+                  </label>
+
+                  <div className="score-card">
+                    <h3>Score card</h3>
+                    <ScoreRow
+                      label="Communication"
+                      value={stageForm.score_communication}
+                      onChange={(n) => setStageForm((f) => ({ ...f, score_communication: n }))}
+                    />
+                    <ScoreRow
+                      label="Energy"
+                      value={stageForm.score_energy}
+                      onChange={(n) => setStageForm((f) => ({ ...f, score_energy: n }))}
+                    />
+                    <ScoreRow
+                      label="Relevant experience"
+                      value={stageForm.score_relevant_experience}
+                      onChange={(n) => setStageForm((f) => ({ ...f, score_relevant_experience: n }))}
+                    />
+                  </div>
+
+                  <div className="save-control">
+                    <button type="button" onClick={handleSaveStage} disabled={savingStage}>
+                      {savingStage ? 'Saving…' : 'Save'}
+                    </button>
+                    {stageSaved.saved && <span className="save-confirmation">✓ Saved</span>}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {showReschedule && (
-        <Modal title="Reschedule" onClose={() => setShowReschedule(false)}>
+        <Modal title={isOrientation ? 'Schedule' : 'Reschedule'} onClose={() => setShowReschedule(false)}>
           <form onSubmit={handleRescheduleSave} className="form">
             <div className="form-row">
               <label>
@@ -282,6 +325,50 @@ export function StageTabs({ candidate, onCandidateChange, onError }: StageTabsPr
               <button type="submit">Save</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showCancelModal && activeStage && (
+        <Modal title={`Cancel interview with ${candidate.name}`} onClose={() => setShowCancelModal(false)}>
+          <div className="form">
+            <p>
+              Are you sure you want to cancel the interview with <strong>{candidate.name}</strong>
+              {activeStage.scheduled_at && (
+                <>
+                  {' '}
+                  on <strong>{formatDateTime(activeStage.scheduled_at)}</strong>
+                </>
+              )}
+              ?
+            </p>
+
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={promptReschedule}
+                onChange={(e) => setPromptReschedule(e.target.checked)}
+              />
+              Prompt candidate to reschedule their interview
+            </label>
+
+            <label>
+              <span>Reason for interview cancellation (Optional)</span>
+              <textarea
+                rows={3}
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+              />
+            </label>
+
+            <div className="modal-actions">
+              <button type="button" className="button-secondary" onClick={() => setShowCancelModal(false)}>
+                Back
+              </button>
+              <button type="button" className="button-danger" onClick={handleConfirmCancel} disabled={cancelling}>
+                {cancelling ? 'Cancelling…' : 'Cancel interview'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

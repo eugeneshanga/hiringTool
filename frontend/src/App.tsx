@@ -15,6 +15,7 @@ import { JobMeetingStagesPage } from './pages/JobMeetingStagesPage'
 import { StageEditorLayout } from './pages/StageEditorLayout'
 import { StageSchedulePage } from './pages/StageSchedulePage'
 import { StagePreScreenPage } from './pages/StagePreScreenPage'
+import { StageOnboardingPage } from './pages/StageOnboardingPage'
 import { CandidatesPage } from './pages/CandidatesPage'
 import { CandidateDetailsPage } from './pages/CandidateDetailsPage'
 import { CandidateLoginPage } from './pages/candidate/CandidateLoginPage'
@@ -85,6 +86,7 @@ function App() {
           >
             <Route index element={<StageSchedulePage />} />
             <Route path="pre-screen" element={<StagePreScreenPage />} />
+            <Route path="onboarding" element={<StageOnboardingPage />} />
           </Route>
           <Route
             path="/candidates"

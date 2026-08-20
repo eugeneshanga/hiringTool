@@ -381,6 +381,21 @@ button:disabled {
   color: var(--text-subtle);
 }
 
+/* Individually clickable within a .clickable-row (the whole job row also
+   navigates on click - the handler stops propagation so this takes over
+   instead) - a distinct hover tint from the row's own so it's clear this
+   piece jumps somewhere more specific (that stage's Schedule tab). */
+.chip-row-link {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+  margin: -0.15rem -0.35rem;
+}
+
+.chip-row-link:hover {
+  background: rgba(51, 85, 255, 0.08);
+}
+
 .chip {
   display: inline-block;
   background: var(--border);
@@ -815,6 +830,16 @@ button:disabled {
 
 .button-secondary:hover {
   background: var(--bg);
+}
+
+/* Danger button - a solid, destructive-action counterpart to the plain
+   primary button above (e.g. "Cancel interview" in a confirmation modal). */
+.button-danger {
+  background: var(--danger);
+}
+
+.button-danger:hover {
+  background: #b83a3a;
 }
 
 /* Meeting stage list */

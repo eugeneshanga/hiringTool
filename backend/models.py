@@ -167,6 +167,18 @@ class Job(db.Model):
             for q in sorted(t.screening_questions, key=lambda q: (q.sort_order, q.id))
         ]
 
+    @property
+    def onboarding_items(self):
+        """Every onboarding document item across all of this job's stages —
+        same aggregation as screening_questions above, for the same reason: a
+        candidate applying to the job is on the hook for all of them,
+        regardless of which stage each one belongs to."""
+        return [
+            item
+            for t in sorted(self.meeting_stage_templates, key=lambda t: (t.sort_order, t.id))
+            for item in sorted(t.onboarding_items, key=lambda i: (i.sort_order, i.id))
+        ]
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -226,6 +238,9 @@ class MeetingStageTemplate(db.Model):
     screening_questions = db.relationship(
         'ScreeningQuestion', backref='meeting_stage_template', cascade='all, delete-orphan', lazy=True
     )
+    onboarding_items = db.relationship(
+        'OnboardingDocumentItem', backref='meeting_stage_template', cascade='all, delete-orphan', lazy=True
+    )
 
     def to_dict(self):
         return {
@@ -272,6 +287,39 @@ class ScreeningQuestion(db.Model):
             "question_label": self.question_label,
             "answer_options": self.answer_options or [],
             "qualified_answers": self.qualified_answers or [],
+            "sort_order": self.sort_order,
+        }
+
+
+class OnboardingDocumentItem(db.Model):
+    """A required (or optional) onboarding document defined on a meeting stage
+    (the Stage editor's "Onboarding" tab). Candidates progressing through the
+    job submit one CandidateDocument per item, across all of the job's stages
+    — see Job.onboarding_items. Mirrors ScreeningQuestion's shape/scoping."""
+    __tablename__ = 'onboarding_document_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    meeting_stage_template_id = db.Column(
+        db.Integer, db.ForeignKey('meeting_stage_templates.id'), nullable=False
+    )
+    description = db.Column(db.String(500), nullable=False)
+    # Named item_type, not type, to avoid shadowing the builtin - same reason
+    # Interview.meeting_type isn't just called type. Only 'file_upload' exists
+    # today; kept as a field for other item types later (e.g. an e-sign doc).
+    item_type = db.Column(db.String(30), default='file_upload', nullable=False)
+    required = db.Column(db.Boolean, default=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    VALID_TYPES = ('file_upload',)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "meeting_stage_template_id": self.meeting_stage_template_id,
+            "description": self.description,
+            "type": self.item_type,
+            "required": self.required,
             "sort_order": self.sort_order,
         }
 
@@ -478,12 +526,14 @@ class Candidate(db.Model):
                                 "score_communication": None,
                                 "score_energy": None,
                                 "score_relevant_experience": None,
+                                "cancellation_reason": None,
+                                "prompt_reschedule": None,
                             }
                         ),
                     }
                     for t in templates
                 ],
-                "documents": {d.doc_type: d.to_dict() for d in self.documents},
+                "documents": {d.onboarding_item_id: d.to_dict() for d in self.documents},
             }
         )
         return data
@@ -525,6 +575,13 @@ class CandidateStageProgress(db.Model):
     score_communication = db.Column(db.Integer)
     score_energy = db.Column(db.Integer)
     score_relevant_experience = db.Column(db.Integer)
+    # Set together when a recruiter cancels via the "Cancel interview" modal.
+    # Neither triggers any actual notification today - there's no email/SMS
+    # infrastructure in this app yet, and no candidate-facing reschedule flow
+    # for prompt_reschedule to hand off to - they're just recorded so the
+    # recruiter's stated intent isn't lost.
+    cancellation_reason = db.Column(db.Text)
+    prompt_reschedule = db.Column(db.Boolean)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     VALID_STATUSES = ('Upcoming', 'Completed', 'Cancelled', 'No show')
@@ -547,16 +604,9 @@ class CandidateStageProgress(db.Model):
             "score_communication": self.score_communication,
             "score_energy": self.score_energy,
             "score_relevant_experience": self.score_relevant_experience,
+            "cancellation_reason": self.cancellation_reason,
+            "prompt_reschedule": self.prompt_reschedule,
         }
-
-
-# (doc_type, label) — the fixed onboarding document checklist shown on every candidate.
-CANDIDATE_DOCUMENT_TYPES = (
-    ("drivers_license", "Please Upload a Government Issued Driver's License"),
-    ("nursing_license", "Please Upload your Nursing License"),
-    ("ssn_card", "Please Upload Your Social Security Card"),
-    ("xray_ppd", "Please send your current X-ray or PPD Results"),
-)
 
 
 class CandidateDocument(db.Model):
@@ -564,17 +614,23 @@ class CandidateDocument(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     candidate_id = db.Column(db.Integer, db.ForeignKey('candidates.id'), nullable=False)
-    doc_type = db.Column(db.String(30), nullable=False)
+    onboarding_item_id = db.Column(
+        db.Integer, db.ForeignKey('onboarding_document_items.id'), nullable=False
+    )
     original_filename = db.Column(db.String(255), nullable=False)
     stored_filename = db.Column(db.String(255), nullable=False)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    __table_args__ = (db.UniqueConstraint('candidate_id', 'doc_type', name='uq_candidate_doctype'),)
+    __table_args__ = (
+        db.UniqueConstraint('candidate_id', 'onboarding_item_id', name='uq_candidate_onboarding_item'),
+    )
+
+    onboarding_item = db.relationship('OnboardingDocumentItem')
 
     def to_dict(self):
         return {
             "id": self.id,
-            "doc_type": self.doc_type,
+            "onboarding_item_id": self.onboarding_item_id,
             "original_filename": self.original_filename,
             "uploaded_at": iso_utc(self.uploaded_at),
         }
