@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
+import { needsPreScreen } from '../lib/meetingStageTypes'
 import type { ScreeningQuestion } from '../api/types'
 import { useStageEditorContext } from './StageEditorLayout'
 
@@ -141,6 +143,13 @@ export function StagePreScreenPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to remove question')
     }
+  }
+
+  // Orientation stages don't get a Pre-screen tab (see needsPreScreen) - bounce
+  // away if this is reached directly, e.g. a stale link or the stage's type
+  // was changed to orientation while this tab was open.
+  if (!needsPreScreen(template.meeting_type)) {
+    return <Navigate to={`/jobs/${job.id}/meeting-stages/${template.id}`} replace />
   }
 
   return (

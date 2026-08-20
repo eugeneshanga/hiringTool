@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
-import { needsDuration, toInterviewMeetingType } from '../lib/meetingStageTypes'
+import { needsCapacity, needsDuration, toInterviewMeetingType } from '../lib/meetingStageTypes'
 import type { Candidate, Interview } from '../api/types'
 import { useStageEditorContext } from './StageEditorLayout'
 
@@ -33,6 +33,7 @@ export function StageSchedulePage() {
 
   const [durationInput, setDurationInput] = useState(template.duration_minutes?.toString() ?? '')
   const [windowInput, setWindowInput] = useState(String(template.scheduling_window_days))
+  const [capacityInput, setCapacityInput] = useState(template.default_capacity?.toString() ?? '')
   const [savingSettings, setSavingSettings] = useState(false)
 
   const [sessions, setSessions] = useState<Interview[]>([])
@@ -83,6 +84,7 @@ export function StageSchedulePage() {
       const updated = await api.updateMeetingStage(job.id, template.id, {
         duration_minutes: needsDuration(template.meeting_type) && durationInput ? Number(durationInput) : null,
         scheduling_window_days: Number(windowInput) || 0,
+        default_capacity: needsCapacity(template.meeting_type) && capacityInput ? Number(capacityInput) : null,
       })
       onTemplateChange(updated)
     } catch (err) {
@@ -210,6 +212,18 @@ export function StageSchedulePage() {
             onBlur={handleSaveSettings}
           />
         </label>
+        {needsCapacity(template.meeting_type) && (
+          <label>
+            Max candidates per session
+            <input
+              type="number"
+              min={1}
+              value={capacityInput}
+              onChange={(e) => setCapacityInput(e.target.value)}
+              onBlur={handleSaveSettings}
+            />
+          </label>
+        )}
         {savingSettings && <span className="subtle">Saving…</span>}
       </div>
 

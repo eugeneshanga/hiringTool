@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
 import { ScheduleInterviewModal } from './ScheduleInterviewModal'
-import { MEETING_TYPES } from '../lib/meetingStageTypes'
+import { MEETING_TYPES, needsPreScreen } from '../lib/meetingStageTypes'
 import type { Job, MeetingStageTemplate, StageMeetingType } from '../api/types'
 
 export interface StageEditorContext {
@@ -102,12 +102,14 @@ export function StageEditorLayout() {
           </Link>
           <div className="sidebar-group-label">Stage editor</div>
           <div className="sidebar-subgroup-label">Stage</div>
-          <NavLink
-            to={`/jobs/${job.id}/meeting-stages/${template.id}/pre-screen`}
-            className={({ isActive }) => (isActive ? 'active' : '')}
-          >
-            Pre-screen
-          </NavLink>
+          {needsPreScreen(template.meeting_type) && (
+            <NavLink
+              to={`/jobs/${job.id}/meeting-stages/${template.id}/pre-screen`}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
+              Pre-screen
+            </NavLink>
+          )}
           <NavLink
             to={`/jobs/${job.id}/meeting-stages/${template.id}`}
             end
