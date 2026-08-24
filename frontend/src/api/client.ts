@@ -1,19 +1,24 @@
 import type {
   AvailableMeetingStage,
+  BlocklistEntry,
+  BlocklistEntryType,
   Candidate,
   CandidateDetail,
   CandidateDocumentChecklistItem,
   CandidateDocumentSubmission,
+  GoogleCalendarStatus,
   Interview,
   Job,
+  Organization,
   OnboardingDocumentItem,
   OnboardingItemType,
   ScreeningQuestion,
   MeetingStageTemplate,
   StageProgressStatus,
   User,
+  UserRole,
 } from './types'
-import { createApiClient } from './httpClient'
+import { BASE_URL, createApiClient } from './httpClient'
 
 export { ApiError } from './httpClient'
 
@@ -69,6 +74,18 @@ export const api = {
     }),
 
   me: () => request<User>('/api/auth/me'),
+  updateProfile: (data: { first_name?: string; last_name?: string; phone?: string | null }) =>
+    request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Google Calendar connect is a real top-level navigation (Google's own
+  // redirect back to /callback only works that way), not a fetch - the
+  // frontend just needs the fully-formed URL, token included as a query
+  // param since a page navigation carries no Authorization header. See
+  // calendar_auth.py's google_connect() docstring.
+  googleCalendarConnectUrl: () =>
+    `${BASE_URL}/api/auth/google/connect?jwt=${encodeURIComponent(getToken() ?? '')}`,
+  getGoogleCalendarStatus: () => request<GoogleCalendarStatus>('/api/auth/google/status'),
+  disconnectGoogleCalendar: () => request<void>('/api/auth/google/disconnect', { method: 'DELETE' }),
 
   listJobs: (params?: { status?: string; search?: string }) => {
     const qs = new URLSearchParams()
@@ -264,4 +281,50 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ candidate_id: candidateId }),
     }),
+
+  // --- Organization (name, logo, banner) - GET is any recruiter, editing is
+  // admin-only (enforced server-side; the frontend also hides the nav entry
+  // for non-admins - see AdminRoute.tsx). ---
+  getOrganization: () => request<Organization>('/api/organization'),
+  updateOrganization: (data: { name?: string }) =>
+    request<Organization>('/api/organization', { method: 'PATCH', body: JSON.stringify(data) }),
+  uploadOrganizationLogo: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return requestForm<Organization>('/api/organization/logo', form)
+  },
+  downloadOrganizationLogo: () => requestBlob('/api/organization/logo'),
+  deleteOrganizationLogo: () => request<Organization>('/api/organization/logo', { method: 'DELETE' }),
+  uploadOrganizationBanner: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return requestForm<Organization>('/api/organization/banner', form)
+  },
+  downloadOrganizationBanner: () => requestBlob('/api/organization/banner'),
+  deleteOrganizationBanner: () => request<Organization>('/api/organization/banner', { method: 'DELETE' }),
+
+  // --- Users & licenses (admin-only) ---
+  listOrgUsers: () => request<User[]>('/api/organization/users'),
+  createOrgUser: (data: {
+    first_name: string
+    last_name: string
+    email: string
+    phone?: string | null
+    password: string
+    role: UserRole
+  }) => request<User>('/api/organization/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateOrgUser: (id: number, data: { role?: UserRole; is_active?: boolean }) =>
+    request<User>(`/api/organization/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  setOrgUserPassword: (id: number, password: string) =>
+    request<User>(`/api/organization/users/${id}/set-password`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+
+  // --- Blocklist (admin-only) ---
+  listBlocklist: () => request<BlocklistEntry[]>('/api/organization/blocklist'),
+  createBlocklistEntry: (data: { type: BlocklistEntryType; value: string; reason?: string | null }) =>
+    request<BlocklistEntry>('/api/organization/blocklist', { method: 'POST', body: JSON.stringify(data) }),
+  deleteBlocklistEntry: (id: number) =>
+    request<void>(`/api/organization/blocklist/${id}`, { method: 'DELETE' }),
 }

@@ -17,6 +17,7 @@ from models import (
     ScreeningQuestion,
     MeetingStageTemplate,
     db,
+    is_email_blocked,
 )
 
 candidates_bp = Blueprint('candidates', __name__)
@@ -70,6 +71,8 @@ def create_candidate():
     error = validate_choice({'stage': stage}, 'stage', Candidate.VALID_STAGES)
     if error:
         return jsonify({"error": error}), 400
+    if is_email_blocked(email):
+        return jsonify({"error": "this email is on the blocklist"}), 403
 
     candidate = Candidate(
         name=name,

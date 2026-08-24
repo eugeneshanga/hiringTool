@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from models import Candidate, db, CandidateAccount
+from models import Candidate, db, CandidateAccount, is_email_blocked
 
 candidate_auth_bp = Blueprint('candidate_auth', __name__)
 
@@ -29,6 +29,8 @@ def register():
         return jsonify({"error": "password must be at least 8 characters"}), 400
     if CandidateAccount.query.filter_by(email=email).first():
         return jsonify({"error": "an account with that email already exists"}), 409
+    if is_email_blocked(email):
+        return jsonify({"error": "this email is not eligible to register"}), 403
 
     account = CandidateAccount(first_name=first_name, last_name=last_name, email=email, phone=phone)
     account.set_password(password)

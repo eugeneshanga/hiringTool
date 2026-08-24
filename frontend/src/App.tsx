@@ -2,12 +2,14 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { CandidateAuthProvider } from './candidateAuth/CandidateAuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AdminRoute } from './components/AdminRoute'
 import { CandidateProtectedRoute } from './components/CandidateProtectedRoute'
 import { Layout } from './components/Layout'
 import { CandidateLayout } from './components/CandidateLayout'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { HomePage } from './pages/HomePage'
+import { ProfilePage } from './pages/ProfilePage'
 import { JobsPage } from './pages/JobsPage'
 import { JobDetailLayout } from './pages/JobDetailLayout'
 import { JobDetailsPage } from './pages/JobDetailsPage'
@@ -16,6 +18,10 @@ import { StageEditorLayout } from './pages/StageEditorLayout'
 import { StageSchedulePage } from './pages/StageSchedulePage'
 import { StagePreScreenPage } from './pages/StagePreScreenPage'
 import { StageOnboardingPage } from './pages/StageOnboardingPage'
+import { OrganizationLayout } from './pages/OrganizationLayout'
+import { OrganizationSettingsPage } from './pages/OrganizationSettingsPage'
+import { OrganizationUsersPage } from './pages/OrganizationUsersPage'
+import { OrganizationBlocklistPage } from './pages/OrganizationBlocklistPage'
 import { CandidatesPage } from './pages/CandidatesPage'
 import { CandidateDetailsPage } from './pages/CandidateDetailsPage'
 import { CandidateLoginPage } from './pages/candidate/CandidateLoginPage'
@@ -51,6 +57,32 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <ProfilePage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization"
+            element={
+              <ProtectedRoute>
+                <AdminRoute>
+                  <Layout>
+                    <OrganizationLayout />
+                  </Layout>
+                </AdminRoute>
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<OrganizationSettingsPage />} />
+            <Route path="users" element={<OrganizationUsersPage />} />
+            <Route path="blocklist" element={<OrganizationBlocklistPage />} />
+          </Route>
           <Route
             path="/jobs"
             element={

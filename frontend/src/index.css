@@ -92,6 +92,121 @@ h1 {
   text-transform: capitalize;
 }
 
+/* Account dropdown in the header (avatar/name, opens onto Organization +
+   profile/org/logout actions) - same popover mechanics as .overflow-menu
+   below, just richer content. */
+.user-menu {
+  position: relative;
+  margin-left: auto;
+}
+
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  color: var(--text);
+  font-weight: 500;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+}
+
+.user-menu-trigger:hover {
+  background: var(--bg);
+}
+
+.user-avatar,
+.user-menu-org-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: white;
+  background: var(--primary);
+}
+
+.user-avatar {
+  border-radius: 50%;
+}
+
+.user-menu-org-logo {
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.user-menu-name {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-caret {
+  color: var(--text-subtle);
+  font-size: 0.7rem;
+}
+
+.user-menu-list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  margin-top: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 220px;
+  padding: 0.5rem;
+}
+
+.user-menu-section-label {
+  padding: 0.3rem 0.5rem 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-subtle);
+}
+
+.user-menu-org-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem;
+  font-weight: 500;
+}
+
+.user-menu-org-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-divider {
+  border-top: 1px solid var(--border);
+  margin: 0.4rem 0;
+}
+
+.user-menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  color: var(--text);
+  font-weight: 500;
+  text-align: left;
+  padding: 0.5rem;
+  border-radius: 6px;
+}
+
+.user-menu-item:hover {
+  background: var(--bg);
+}
+
 .app-main {
   flex: 1;
   padding: 1.5rem;
@@ -738,6 +853,28 @@ button:disabled {
   margin: 0.6rem 0 0.2rem;
 }
 
+.org-sidebar-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0 1rem;
+}
+
+.org-sidebar-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
 .job-detail-sidebar a {
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
@@ -770,7 +907,8 @@ button:disabled {
   gap: 0.9rem;
 }
 
-.job-details-page {
+.job-details-page,
+.profile-page {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -989,6 +1127,35 @@ button:disabled {
   display: block;
 }
 
+.branding-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.image-picker {
+  flex: 1;
+  min-width: 220px;
+}
+
+.image-picker-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 140px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.image-picker-frame img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -1158,6 +1325,11 @@ button:disabled {
 .status-completed {
   background: #e0f5e6;
   color: #1a8a4a;
+}
+
+.calendar-status-connected {
+  color: #1a8a4a;
+  font-weight: 600;
 }
 
 .status-cancelled {

@@ -14,6 +14,7 @@ from routes.interviews import interviews_bp
 from routes.meeting_stages import meeting_stages_bp
 from routes.screening_questions import screening_questions_bp
 from routes.onboarding_items import onboarding_items_bp
+from routes.organization import organization_bp
 
 migrate = Migrate()
 
@@ -57,6 +58,7 @@ def create_app(config_overrides=None):
     app.register_blueprint(meeting_stages_bp)
     app.register_blueprint(screening_questions_bp)
     app.register_blueprint(onboarding_items_bp)
+    app.register_blueprint(organization_bp)
 
     @app.route('/api/health', methods=['GET'])
     def health_check():

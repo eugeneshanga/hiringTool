@@ -1,10 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { useAuth } from '../auth/AuthContext'
+import { UserMenu } from './UserMenu'
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth()
-
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -22,14 +20,7 @@ export function Layout({ children }: { children: ReactNode }) {
             Candidates
           </NavLink>
         </nav>
-        <div className="user-info">
-          <span>
-            {user?.name} <span className="role-badge">{user?.role}</span>
-          </span>
-          <button onClick={logout} className="link-button">
-            Log out
-          </button>
-        </div>
+        <UserMenu />
       </header>
       <main className="app-main">{children}</main>
     </div>

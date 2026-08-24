@@ -38,3 +38,30 @@ def delete_candidate_file(candidate_id, stored_filename):
     path = candidate_file_path(candidate_id, stored_filename)
     if os.path.exists(path):
         os.remove(path)
+
+
+def _organization_dir(create=True):
+    path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'organization')
+    if create:
+        os.makedirs(path, exist_ok=True)
+    return path
+
+
+def save_organization_file(file_storage):
+    """Same UUID-prefixed scheme as save_candidate_file, for the
+    organization's logo/banner (there's only ever one org, so no id to key
+    the directory by)."""
+    original_filename = secure_filename(file_storage.filename) or 'upload'
+    stored_filename = f'{uuid.uuid4().hex}_{original_filename}'
+    file_storage.save(os.path.join(_organization_dir(), stored_filename))
+    return original_filename, stored_filename
+
+
+def organization_file_path(stored_filename):
+    return os.path.join(_organization_dir(), stored_filename)
+
+
+def delete_organization_file(stored_filename):
+    path = organization_file_path(stored_filename)
+    if os.path.exists(path):
+        os.remove(path)

@@ -26,11 +26,13 @@ export function needsAddress(type: StageMeetingType | '') {
   return type === 'In-person interview' || type === 'In-person orientation'
 }
 
-// Qualifying/screening questions gate candidates into an interview - by the
-// time they've reached orientation they've already been screened, so
-// orientation stages don't get a "Pre-screen" tab of their own.
+// Qualifying/screening questions gate a candidate into an interview - by the
+// time they've reached orientation (or an instant meeting link, which isn't
+// a hiring gate at all) they've already been screened, so only actual
+// interview stages get a "Pre-screen" tab. Same restriction as
+// needsOnboarding below, for the same reason.
 export function needsPreScreen(type: StageMeetingType | '') {
-  return type !== 'In-person orientation'
+  return type === 'Virtual interview' || type === 'In-person interview'
 }
 
 // Onboarding document collection is only meaningful on an actual interview

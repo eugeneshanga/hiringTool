@@ -14,6 +14,7 @@ interface AuthContextValue {
     password: string
   }) => Promise<void>
   logout: () => void
+  updateUser: (user: User) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -58,8 +59,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  // Lets a page that edits the logged-in user's own info (e.g. Profile) push
+  // the saved result back into context, so the header/menu reflect it
+  // immediately without a full re-fetch.
+  function updateUser(updated: User) {
+    setUser(updated)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   )

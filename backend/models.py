@@ -27,6 +27,8 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    VALID_ROLES = ('admin', 'recruiter', 'interviewer')
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
@@ -634,3 +636,72 @@ class CandidateDocument(db.Model):
             "original_filename": self.original_filename,
             "uploaded_at": iso_utc(self.uploaded_at),
         }
+
+
+class Organization(db.Model):
+    """This deployment's single organization record (single-tenant app - one
+    row, always id=1). Replaces the name that used to be hardcoded in the
+    frontend (register pages' SMS-consent copy, the header's account
+    dropdown). Logo/banner are stored the same way CandidateDocument stores
+    uploads (file_storage.py's organization_file_path family) - the columns
+    here just hold which stored filename to serve, not raw bytes."""
+    __tablename__ = 'organizations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    logo_original_filename = db.Column(db.String(255))
+    logo_stored_filename = db.Column(db.String(255))
+    banner_original_filename = db.Column(db.String(255))
+    banner_stored_filename = db.Column(db.String(255))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "has_logo": self.logo_stored_filename is not None,
+            "has_banner": self.banner_stored_filename is not None,
+        }
+
+
+class BlocklistEntry(db.Model):
+    """An email address or email domain barred from becoming a candidate -
+    checked at candidate self-registration (candidate_auth.py) and when a
+    recruiter adds a candidate by hand (routes/candidates.py)."""
+    __tablename__ = 'blocklist_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    entry_type = db.Column(db.String(10), nullable=False)  # 'email' or 'domain'
+    value = db.Column(db.String(255), nullable=False)  # lowercased; a bare domain for 'domain' entries
+    reason = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    VALID_TYPES = ('email', 'domain')
+
+    __table_args__ = (db.UniqueConstraint('entry_type', 'value', name='uq_blocklist_type_value'),)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "type": self.entry_type,
+            "value": self.value,
+            "reason": self.reason,
+            "created_at": iso_utc(self.created_at),
+        }
+
+
+def is_email_blocked(email):
+    """True if `email` (or its domain) has a matching BlocklistEntry. Shared
+    by candidate self-registration and the recruiter's "add candidate" form
+    so both enforce the same list the same way."""
+    email = (email or '').strip().lower()
+    if not email:
+        return False
+    domain = email.split('@')[-1] if '@' in email else None
+    query = BlocklistEntry.query.filter(
+        db.or_(
+            db.and_(BlocklistEntry.entry_type == 'email', BlocklistEntry.value == email),
+            db.and_(BlocklistEntry.entry_type == 'domain', BlocklistEntry.value == domain),
+        )
+    )
+    return query.first() is not None

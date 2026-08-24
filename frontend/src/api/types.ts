@@ -11,6 +11,8 @@ export type StageMeetingType =
   | 'In-person orientation'
   | 'Instant meeting link'
 
+export type UserRole = 'admin' | 'recruiter' | 'interviewer'
+
 export interface User {
   id: number
   first_name: string
@@ -18,7 +20,8 @@ export interface User {
   name: string
   phone: string | null
   email: string
-  role: string
+  role: UserRole
+  is_active: boolean
   created_at: string
 }
 
@@ -32,6 +35,32 @@ export interface CandidateAccount {
   phone: string | null
   email: string
   is_active: boolean
+  created_at: string
+}
+
+export interface GoogleCalendarStatus {
+  connected: boolean
+  google_email?: string
+}
+
+// This single-tenant app's one Organization row - name plus whether a
+// logo/banner is set (the images themselves are fetched separately as blobs
+// via GET /api/organization/logo|banner, same pattern as candidate
+// documents, so they can carry an auth header).
+export interface Organization {
+  id: number
+  name: string
+  has_logo: boolean
+  has_banner: boolean
+}
+
+export type BlocklistEntryType = 'email' | 'domain'
+
+export interface BlocklistEntry {
+  id: number
+  type: BlocklistEntryType
+  value: string
+  reason: string | null
   created_at: string
 }
 
