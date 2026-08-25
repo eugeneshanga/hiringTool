@@ -38,15 +38,11 @@ class Config:
     # Fernet key encrypting CalendarConnection.refresh_token at rest.
     CALENDAR_ENCRYPTION_KEY = os.environ.get('CALENDAR_ENCRYPTION_KEY')
 
-    # Bounds candidate-visible availability (google_calendar.get_free_slots)
-    # on top of whatever freebusy.query reports - Google's API only knows
-    # busy/free, not "reasonable hours to schedule a candidate", so this app
-    # supplies a single org-wide working-hours window/timezone rather than
-    # per-interviewer hours (matches the single-tenant Organization model -
-    # see README). Revisit if that stops being true.
-    SCHEDULING_TIMEZONE = os.environ.get('SCHEDULING_TIMEZONE', 'UTC')
-    SCHEDULING_WORKING_HOURS_START = int(os.environ.get('SCHEDULING_WORKING_HOURS_START', '9'))  # 24h, local to SCHEDULING_TIMEZONE
-    SCHEDULING_WORKING_HOURS_END = int(os.environ.get('SCHEDULING_WORKING_HOURS_END', '17'))
+    # Candidate-visible scheduling availability (working hours/timezone/
+    # allowed days) used to live here as env-var-only settings. It's now
+    # editable from the Organization Settings page instead - see
+    # Organization.scheduling_timezone etc. in models.py and
+    # google_calendar.get_free_slots, which reads from there.
 
     # Where the frontend lives, for building links this backend emails out
     # (e.g. the public apply/schedule link - see routes/apply.py and
@@ -65,3 +61,18 @@ class Config:
     # deployment should set this to a shared store, e.g.
     # RATELIMIT_STORAGE_URI=redis://localhost:6379.
     RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
+
+    # Runs the in-process APScheduler background job that sends delayed
+    # rejection emails (see scheduled_jobs.py) - off in tests (conftest.py's
+    # `app` fixture overrides this) so pytest never spins up a real
+    # background thread. Same "single process only" caveat as
+    # RATELIMIT_STORAGE_URI/email_sender's send cap above - a multi-worker
+    # deployment would need a real task queue instead.
+    SCHEDULER_ENABLED = os.environ.get('SCHEDULER_ENABLED', 'true').lower() == 'true'
+
+    # How long after being auto-disqualified by screening answers (see
+    # routes/apply.py) a candidate's rejection email actually goes out -
+    # deliberately not instant, so it doesn't read as an obviously automated
+    # reply. Minutes, not hours, so it's easy to turn down for testing/demo
+    # without a code change.
+    REJECTION_EMAIL_DELAY_MINUTES = int(os.environ.get('REJECTION_EMAIL_DELAY_MINUTES', '60'))

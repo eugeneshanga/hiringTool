@@ -13,12 +13,13 @@ never json=. UPLOAD_FOLDER is pointed at a throwaway temp dir by conftest.py's
 `app` fixture, so these never touch backend/uploads/.
 """
 import io
+import json
 from datetime import datetime, timedelta
 
 import pytest
 
 import routes.apply as apply_module
-from models import BlocklistEntry, Candidate, Job, db
+from models import BlocklistEntry, Candidate, Job, MeetingStageTemplate, Organization, ScreeningQuestion, db
 
 
 @pytest.fixture(autouse=True)
@@ -269,6 +270,106 @@ def test_resume_save_failure_does_not_fail_the_request(app, client, job, monkeyp
         assert candidate.resume_stored_filename is None
 
 
+# --- screening questions: answered here, evaluated automatically -----------------
+
+def _add_multiple_choice_question(app, job, qualified_answers=('Yes',)):
+    with app.app_context():
+        q = ScreeningQuestion(
+            meeting_stage_template_id=None, question_text='Do you have reliable transportation?',
+            answer_options=['Yes', 'No'], qualified_answers=list(qualified_answers),
+        )
+        # ScreeningQuestion belongs to a MeetingStageTemplate, not a Job
+        # directly - reuse conftest's `meeting_stage` shape inline here so
+        # each test can control qualified_answers itself.
+        stage = MeetingStageTemplate.query.filter_by(job_id=job.id).first()
+        if not stage:
+            stage = MeetingStageTemplate(job_id=job.id, meeting_type='Virtual interview', stage_name='Interview', sort_order=0)
+            db.session.add(stage)
+            db.session.commit()
+        q.meeting_stage_template_id = stage.id
+        db.session.add(q)
+        db.session.commit()
+        return q.id
+
+
+def test_apply_qualifying_answer_gets_a_token_and_the_schedule_email(app, client, job, mock_email):
+    question_id = _add_multiple_choice_question(app, job, qualified_answers=['Yes'])
+
+    resp = _post_apply(client, job_id=job.id, answers=json.dumps([{"question_id": question_id, "answer_text": "Yes"}]))
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"status": "ok"}  # identical to the disqualified response below
+    with app.app_context():
+        candidate = Candidate.query.filter_by(job_id=job.id).first()
+        assert candidate.application_token is not None
+        assert candidate.stage == 'Applied'
+        assert candidate.disqualified_at is None
+    assert len(mock_email) == 1
+
+
+def test_apply_disqualifying_answer_gets_no_token_and_no_schedule_email(app, client, job, mock_email):
+    question_id = _add_multiple_choice_question(app, job, qualified_answers=['Yes'])
+
+    resp = _post_apply(client, job_id=job.id, answers=json.dumps([{"question_id": question_id, "answer_text": "No"}]))
+
+    # Same response as the qualifying case above - the outcome is never
+    # revealed here, only by which email (if any) eventually shows up.
+    assert resp.status_code == 200
+    assert resp.get_json() == {"status": "ok"}
+    with app.app_context():
+        candidate = Candidate.query.filter_by(job_id=job.id).first()
+        assert candidate is not None
+        assert candidate.application_token is None
+        assert candidate.stage == 'Rejected'
+        assert candidate.disqualified_at is not None
+    assert mock_email == []  # no scheduling link goes out
+
+
+def test_apply_free_text_question_always_qualifies(app, client, job, mock_email):
+    with app.app_context():
+        stage = MeetingStageTemplate(job_id=job.id, meeting_type='Virtual interview', stage_name='Interview', sort_order=0)
+        db.session.add(stage)
+        db.session.commit()
+        q = ScreeningQuestion(meeting_stage_template_id=stage.id, question_text='Tell us about yourself')
+        db.session.add(q)
+        db.session.commit()
+        question_id = q.id
+
+    resp = _post_apply(client, job_id=job.id, answers=json.dumps([{"question_id": question_id, "answer_text": "Anything at all"}]))
+
+    assert resp.status_code == 200
+    with app.app_context():
+        candidate = Candidate.query.filter_by(job_id=job.id).first()
+        assert candidate.disqualified_at is None
+        assert candidate.application_token is not None
+
+
+def test_apply_requires_every_screening_question_answered(app, client, job):
+    _add_multiple_choice_question(app, job)
+
+    resp = _post_apply(client, job_id=job.id, answers=json.dumps([]))
+
+    assert resp.status_code == 400
+    with app.app_context():
+        assert Candidate.query.filter_by(job_id=job.id).first() is None
+
+
+def test_apply_rejects_an_answer_for_a_question_from_another_job(client, job):
+    resp = _post_apply(client, job_id=job.id, answers=json.dumps([{"question_id": 999999, "answer_text": "x"}]))
+    assert resp.status_code == 400
+
+
+def test_apply_rejects_malformed_answers_payload(client, job):
+    # Different emails per call - same email+job is rate-limited to 1/day
+    # (see the rate-limiting tests below), which would otherwise mask the
+    # validation error under test with a 429 on the second call.
+    resp = _post_apply(client, email='a@example.com', job_id=job.id, answers='not-json')
+    assert resp.status_code == 400
+
+    resp = _post_apply(client, email='b@example.com', job_id=job.id, answers=json.dumps({"not": "a list"}))
+    assert resp.status_code == 400
+
+
 # --- rate limiting --------------------------------------------------------------
 
 def test_rate_limits_repeat_submissions_for_the_same_email_and_job(client, job):
@@ -292,7 +393,6 @@ def test_rate_limits_by_ip_across_different_applicants(client, job):
 
 def test_public_job_returns_minimal_info_for_published_jobs(app, client, job):
     with app.app_context():
-        from models import Organization
         db.session.add(Organization(name='Florence Precious Home Care'))
         db.session.commit()
 
@@ -306,6 +406,7 @@ def test_public_job_returns_minimal_info_for_published_jobs(app, client, job):
         "job_type": job.job_type or [], "min_salary": job.min_salary,
         "max_salary": job.max_salary, "salary_period": job.salary_period,
         "organization_name": "Florence Precious Home Care",
+        "screening_questions": [],
     }
 
 

@@ -2,13 +2,28 @@
 CandidateAccount (e.g. sourced from Indeed).
 
 Three steps:
-  POST /api/apply               - create the Candidate + email #1 (anti-abuse
-                                   checks live here - see below).
-  GET  /api/apply/<token>       - that job's title/screening questions and
-                                   open interview slots.
-  POST /api/apply/<token>/submit - atomic: save answers, book the slot,
-                                   create the real calendar event, generate a
-                                   confirmation code, send email #2.
+  POST /api/apply               - create the Candidate, save their screening
+                                   answers, and auto-evaluate them (anti-abuse
+                                   checks live here too - see below):
+                                     qualified    -> email #1, the scheduling
+                                                     link, sent right away.
+                                     disqualified -> no scheduling link ever
+                                                     goes out; a rejection
+                                                     email goes out later
+                                                     instead (see
+                                                     scheduled_jobs.py).
+  GET  /api/apply/<token>       - that job's title and open interview slots.
+                                   Only ever reachable by a qualified
+                                   candidate - see below.
+  POST /api/apply/<token>/submit - atomic: book the slot, create the real
+                                   calendar event, generate a confirmation
+                                   code, send email #2.
+
+application_token is only ever generated for a *qualified* candidate (see
+apply() below) - a disqualified one has no token at all, not an unusable
+one, so there's nothing here for GET/POST .../<token> to special-case: a
+disqualified candidate's token is simply never issued, so those routes 404
+for them exactly like any other unknown token would.
 
 Which stage a candidate schedules against: the job's first MeetingStageTemplate
 by sort_order, whichever type it is (see _scheduling_stage_for) - not
@@ -20,10 +35,13 @@ email, so it's a spam target. Several checks there are deliberately
 indistinguishable from a real, freshly-created application in their response
 - a bot probing the endpoint should not be able to tell "your submission was
 fake and silently dropped" from "you really just applied" by watching the
-response. GET/POST .../<token> don't need that treatment - the token itself
-is the secret (only someone holding the emailed link reaches them), so
-honest 404/410/409s are fine there.
+response - and that now extends to the qualified/disqualified outcome too,
+for the same reason: the response never reveals which one happened, only
+email does (see _generic_success_response). GET/POST .../<token> don't need
+that treatment - the token itself is the secret (only someone holding the
+emailed link reaches them), so honest 404/410/409s are fine there.
 """
+import json
 from datetime import datetime, timedelta
 
 import dns.resolver
@@ -87,6 +105,10 @@ def get_public_job(job_id):
         "max_salary": job.max_salary,
         "salary_period": job.salary_period,
         "organization_name": org.name if org else "this organization",
+        "screening_questions": [
+            {"id": q.id, "question_text": q.question_text, "answer_options": q.answer_options or []}
+            for q in job.screening_questions
+        ],
     }), 200
 
 # How long a generated application_token (and thus the emailed apply link)
@@ -168,8 +190,21 @@ def _parse_required_yes_no(value):
     return None
 
 
+def _is_qualifying_answer(question, answer_text):
+    """A free-text question (no answer_options) has no defined criteria for
+    disqualifying anyone - always treated as qualifying. A multiple-choice
+    question disqualifies unless the given answer is exactly one of its
+    qualified_answers (see ScreeningQuestion's docstring in models.py - this
+    is the same qualifying/disqualifying mechanism the Pre-screen tab has
+    always defined per question, just evaluated automatically here instead
+    of read by a recruiter)."""
+    if not question.answer_options:
+        return True
+    return answer_text in (question.qualified_answers or [])
+
+
 @apply_bp.route('/api/apply', methods=['POST'])
-@limiter.limit("5 per hour")
+@limiter.limit("15 per hour")
 @limiter.limit("1 per day", key_func=_email_job_rate_limit_key)
 def apply():
     # multipart/form-data, not JSON - request.form for text fields,
@@ -206,9 +241,32 @@ def apply():
     if work_authorized is None or requires_visa_sponsorship is None:
         return jsonify({"error": "please answer both work-authorization questions"}), 400
 
+    try:
+        answers = json.loads(form.get('answers') or '[]')
+    except (TypeError, ValueError):
+        answers = None
+    if not isinstance(answers, list):
+        return jsonify({"error": "answers must be a list of {question_id, answer_text}"}), 400
+
     job = Job.query.get(job_id)
     if not job or job.status != 'Published':
         return jsonify({"error": f"no open job with id {job_id}"}), 400
+
+    # Every one of the job's screening questions is mandatory - see
+    # _is_qualifying_answer for what happens with the content of the
+    # answers; this only checks that all of them were actually answered.
+    # (ScreeningQuestion has no per-question "required" flag - unlike
+    # OnboardingDocumentItem - so this applies uniformly to all of them.)
+    valid_question_ids = {q.id for q in job.screening_questions}
+    answers_by_question = {}
+    for entry in answers:
+        question_id = entry.get('question_id') if isinstance(entry, dict) else None
+        if question_id not in valid_question_ids:
+            return jsonify({"error": f"question {question_id} does not belong to this job"}), 400
+        answers_by_question[question_id] = entry.get('answer_text')
+    unanswered = [q for q in job.screening_questions if not (answers_by_question.get(q.id) or '').strip()]
+    if unanswered:
+        return jsonify({"error": "please answer all screening questions"}), 400
 
     if is_email_blocked(email):
         return jsonify({"error": "this email is not eligible to apply"}), 403
@@ -218,8 +276,10 @@ def apply():
 
     # Dedupe: an existing, still-live application for this email+job means
     # this candidate already has a valid apply link out there (or is mid
-    # prescreen/scheduling) - no-op rather than creating a second Candidate
-    # or (later) sending a second email.
+    # scheduling) - no-op rather than creating a second Candidate or sending
+    # a second email. A previously-*disqualified* candidate is never "live"
+    # here (see below - they never get an application_token at all), so
+    # this doesn't block someone from re-applying after a rejection.
     existing = Candidate.query.filter_by(job_id=job_id, email=email).filter(
         Candidate.application_token.isnot(None),
         Candidate.application_token_expires_at > datetime.utcnow(),
@@ -239,17 +299,21 @@ def apply():
         work_authorized=work_authorized,
         requires_visa_sponsorship=requires_visa_sponsorship,
         source=(form.get('source') or 'Public application'),
-        application_token=generate_application_token(),
-        application_token_expires_at=datetime.utcnow() + timedelta(days=APPLICATION_TOKEN_LIFETIME_DAYS),
     )
     db.session.add(candidate)
+    db.session.commit()
+
+    for question_id, answer_text in answers_by_question.items():
+        db.session.add(CandidateScreeningAnswer(
+            candidate_id=candidate.id, question_id=question_id, answer_text=answer_text,
+        ))
     db.session.commit()
 
     # The resume needs candidate.id (file_storage.py keys uploads by it), so
     # this can only happen after the row above is committed - if it fails,
     # the candidate already exists without a resume attached rather than not
     # existing at all. Logged and treated as best-effort for the same reason
-    # the email send below is: the application itself already succeeded.
+    # the email sends below are: the application itself already succeeded.
     try:
         original_filename, stored_filename = save_candidate_file(candidate.id, resume)
         candidate.resume_original_filename = original_filename
@@ -258,22 +322,43 @@ def apply():
     except Exception:
         current_app.logger.exception("Failed to save resume for candidate %s", candidate.id)
 
-    # Best-effort: the candidate row is already committed, so a notification
-    # failure here shouldn't turn a successful application into a 500 for
-    # them - log and move on rather than letting it propagate.
-    try:
-        apply_url = f"{current_app.config['FRONTEND_BASE_URL']}/apply/schedule/{candidate.application_token}"
-        send_schedule_interview_email(
-            to_email=candidate.email,
-            candidate_name=candidate.name,
-            job_title=job.title,
-            apply_url=apply_url,
-            expires_at=candidate.application_token_expires_at,
-        )
-    except Exception:
-        current_app.logger.exception(
-            "Failed to send schedule-interview email for candidate %s", candidate.id
-        )
+    qualified = all(_is_qualifying_answer(q, answers_by_question.get(q.id)) for q in job.screening_questions)
+
+    if qualified:
+        # Only a qualified candidate ever gets a live application_token -
+        # see the module docstring for why that alone is enough to keep a
+        # disqualified candidate away from the scheduling routes, with no
+        # special-casing needed there.
+        candidate.application_token = generate_application_token()
+        candidate.application_token_expires_at = datetime.utcnow() + timedelta(days=APPLICATION_TOKEN_LIFETIME_DAYS)
+        db.session.commit()
+
+        # Best-effort: the candidate row is already committed, so a
+        # notification failure here shouldn't turn a successful application
+        # into a 500 for them - log and move on rather than letting it
+        # propagate.
+        try:
+            apply_url = f"{current_app.config['FRONTEND_BASE_URL']}/apply/schedule/{candidate.application_token}"
+            send_schedule_interview_email(
+                to_email=candidate.email,
+                candidate_name=candidate.name,
+                job_title=job.title,
+                apply_url=apply_url,
+                expires_at=candidate.application_token_expires_at,
+            )
+        except Exception:
+            current_app.logger.exception(
+                "Failed to send schedule-interview email for candidate %s", candidate.id
+            )
+    else:
+        # No email sent inline here - scheduled_jobs.send_due_rejection_emails
+        # picks this up once REJECTION_EMAIL_DELAY_MINUTES has passed. stage
+        # flips to 'Rejected' immediately though, so a recruiter browsing the
+        # Candidates list sees the real outcome right away even before the
+        # email goes out.
+        candidate.stage = 'Rejected'
+        candidate.disqualified_at = datetime.utcnow()
+        db.session.commit()
 
     return _generic_success_response()
 
@@ -358,10 +443,6 @@ def get_application(token):
         "job_title": job.title,
         "organization_name": organization_name,
         "already_scheduled": False,
-        "screening_questions": [
-            {"id": q.id, "question_text": q.question_text, "answer_options": q.answer_options or []}
-            for q in job.screening_questions
-        ],
         "stage_name": stage.stage_name if stage else None,
         "meeting_type": stage.meeting_type if stage else None,
         "duration_minutes": stage.duration_minutes if stage else None,
@@ -398,21 +479,11 @@ def submit_application(token):
         return jsonify({"error": "this job isn't open for scheduling right now"}), 400
 
     data = request.get_json(silent=True) or {}
-    answers = data.get('answers')
-    if not isinstance(answers, list):
-        return jsonify({"error": "answers must be a list of {question_id, answer_text}"}), 400
-
     try:
         slot_start = parse_datetime(data.get('slot_start'), 'slot_start')
         slot_end = parse_datetime(data.get('slot_end'), 'slot_end')
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-
-    valid_question_ids = {q.id for q in job.screening_questions}
-    for entry in answers:
-        question_id = entry.get('question_id') if isinstance(entry, dict) else None
-        if question_id not in valid_question_ids:
-            return jsonify({"error": f"question {question_id} does not belong to this job"}), 400
 
     # Re-check the slot is still free right now - the list the candidate saw
     # from GET /api/apply/<token> could be stale by the time they submit,
@@ -441,11 +512,6 @@ def submit_application(token):
 
     confirmation_code = _unique_confirmation_code()
     try:
-        for entry in answers:
-            db.session.add(CandidateScreeningAnswer(
-                candidate_id=candidate.id, question_id=entry['question_id'], answer_text=entry.get('answer_text'),
-            ))
-
         interview = Interview(
             job_id=job.id,
             meeting_stage_template_id=stage.id,

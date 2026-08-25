@@ -141,3 +141,22 @@ def send_confirmation_email(
         f"(This is an automated message - please don't reply to this email.)\n"
     )
     return _send(to_email, subject, text_body)
+
+
+def send_rejection_email(to_email, candidate_name, job_title):
+    """Sent by scheduled_jobs.send_due_rejection_emails, some delay after a
+    candidate's screening answers were auto-evaluated as disqualifying (see
+    routes/apply.py's apply()) - never sent inline with that request, so the
+    delay is real rather than simulated by, say, a setTimeout on the
+    frontend."""
+    subject = f"Update on your {job_title} application"
+    text_body = (
+        f"Hi {candidate_name},\n\n"
+        f"Thank you for your interest in the {job_title} position and for taking the time "
+        f"to apply. After reviewing your application, we've decided not to move forward at "
+        f"this time.\n\n"
+        f"We appreciate your interest and wish you the best in your search.\n\n"
+        f"- The Hiring Team\n"
+        f"(This is an automated message - please don't reply to this email.)\n"
+    )
+    return _send(to_email, subject, text_body)

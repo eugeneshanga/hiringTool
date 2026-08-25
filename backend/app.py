@@ -1,4 +1,5 @@
 import logging
+import os
 
 import click
 from flask import Flask, request
@@ -8,6 +9,7 @@ from flask_migrate import Migrate, upgrade
 from config import Config
 from extensions import limiter
 from models import db, User
+from scheduled_jobs import start_scheduler
 from routes.candidates import candidates_bp
 from routes.jobs import jobs_bp
 from routes.auth import auth_bp
@@ -152,6 +154,18 @@ if __name__ == '__main__':
         # yet against this DB — the dev-convenience equivalent of `flask db
         # upgrade`, so `python3 app.py` alone is still enough to get running.
         upgrade()
+
+    # app.run(debug=True) below always runs under Werkzeug's reloader, which
+    # re-executes this whole file in a child process (WERKZEUG_RUN_MAIN=true
+    # in that child only) - everything above this point, including
+    # create_app() itself, already ran once in the outer "monitor" process
+    # too, before the reloader took over. Starting the scheduler
+    # unconditionally would start it in *both* processes and double every
+    # rejection-email send; only start it in the one that actually serves
+    # requests.
+    if app.config['SCHEDULER_ENABLED'] and os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        start_scheduler(app)
+
     # Port 5000 is claimed by macOS's AirPlay Receiver (AirTunes) on most Macs,
     # which silently swallows requests before Flask ever sees them. 5050 avoids it.
     app.run(debug=True, port=5050)

@@ -1,3 +1,5 @@
+import zoneinfo
+
 from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import jwt_required
 
@@ -36,11 +38,49 @@ def get_organization():
 def update_organization():
     org = _get_organization()
     data = request.get_json(silent=True) or {}
+
     if 'name' in data:
         name = (data.get('name') or '').strip()
         if not name:
             return jsonify({"error": "name is required"}), 400
         org.name = name
+
+    if 'scheduling_timezone' in data:
+        tz_name = (data.get('scheduling_timezone') or '').strip()
+        if not tz_name:
+            return jsonify({"error": "timezone is required"}), 400
+        try:
+            zoneinfo.ZoneInfo(tz_name)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+            return jsonify({"error": f"'{tz_name}' is not a recognized timezone"}), 400
+        org.scheduling_timezone = tz_name
+
+    if 'scheduling_working_hours_start' in data or 'scheduling_working_hours_end' in data:
+        start = data.get('scheduling_working_hours_start', org.scheduling_working_hours_start)
+        end = data.get('scheduling_working_hours_end', org.scheduling_working_hours_end)
+        try:
+            start, end = int(start), int(end)
+        except (TypeError, ValueError):
+            return jsonify({"error": "working hours must be whole-number hours (0-23)"}), 400
+        if not (0 <= start <= 23) or not (0 <= end <= 23):
+            return jsonify({"error": "working hours must be between 0 and 23"}), 400
+        if start >= end:
+            return jsonify({"error": "earliest time must be before latest time"}), 400
+        org.scheduling_working_hours_start = start
+        org.scheduling_working_hours_end = end
+
+    if 'scheduling_days' in data:
+        days = data.get('scheduling_days')
+        if not isinstance(days, list) or not days:
+            return jsonify({"error": "select at least one day"}), 400
+        try:
+            days = sorted({int(d) for d in days})
+        except (TypeError, ValueError):
+            return jsonify({"error": "scheduling_days must be a list of integers"}), 400
+        if days[0] < 0 or days[-1] > 6:
+            return jsonify({"error": "scheduling_days must each be between 0 (Monday) and 6 (Sunday)"}), 400
+        org.scheduling_days = days
+
     db.session.commit()
     return jsonify(org.to_dict()), 200
 

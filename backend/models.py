@@ -491,6 +491,17 @@ class Candidate(db.Model):
     # email+job re-applying) knows whether the existing row is still "live".
     application_token = db.Column(db.String(64), unique=True, index=True, nullable=True)
     application_token_expires_at = db.Column(db.DateTime, nullable=True)
+    # Set the moment the public apply flow auto-evaluates this candidate's
+    # screening answers as disqualifying (routes/apply.py's apply()) - null
+    # for everyone else (qualified, still-pending, or not through this flow
+    # at all). Paired with rejection_email_sent_at (also null until sent) so
+    # scheduled_jobs.send_due_rejection_emails can find "disqualified more
+    # than REJECTION_EMAIL_DELAY_MINUTES ago, not yet notified" without a
+    # separate status enum. stage is set to 'Rejected' immediately (visible
+    # to recruiters right away) independent of when the email actually goes
+    # out.
+    disqualified_at = db.Column(db.DateTime, nullable=True)
+    rejection_email_sent_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -590,6 +601,13 @@ class Candidate(db.Model):
                         "question_id": q.id,
                         "question_text": q.question_text,
                         "answer_options": q.answer_options or [],
+                        # Lets the recruiter UI show whether the given answer
+                        # actually qualifies the candidate (see
+                        # routes/apply.py's _is_qualifying_answer, which
+                        # applies this same rule automatically for the
+                        # public apply flow) rather than just whether it was
+                        # answered at all.
+                        "qualified_answers": q.qualified_answers or [],
                         "answer_text": answers_by_question.get(q.id),
                     }
                     for q in questions
@@ -736,6 +754,18 @@ class Organization(db.Model):
     logo_stored_filename = db.Column(db.String(255))
     banner_original_filename = db.Column(db.String(255))
     banner_stored_filename = db.Column(db.String(255))
+    # Bounds the public apply flow's candidate-visible availability
+    # (google_calendar.get_free_slots) on top of whatever freebusy.query
+    # reports - Google's API only knows busy/free, not "reasonable hours (or
+    # days) to schedule a candidate". Editable from the Organization Settings
+    # page (routes/organization.py) - these used to be env-var-only
+    # (config.py's SCHEDULING_* values), moved here so a recruiter can change
+    # them without a deploy. scheduling_days is a list of Python
+    # date.weekday() ints (Monday=0 .. Sunday=6); default is Mon-Fri.
+    scheduling_timezone = db.Column(db.String(64), default='UTC', nullable=False)
+    scheduling_working_hours_start = db.Column(db.Integer, default=9, nullable=False)  # 24h, local to scheduling_timezone
+    scheduling_working_hours_end = db.Column(db.Integer, default=17, nullable=False)
+    scheduling_days = db.Column(db.JSON, default=lambda: [0, 1, 2, 3, 4], nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -744,6 +774,10 @@ class Organization(db.Model):
             "name": self.name,
             "has_logo": self.logo_stored_filename is not None,
             "has_banner": self.banner_stored_filename is not None,
+            "scheduling_timezone": self.scheduling_timezone,
+            "scheduling_working_hours_start": self.scheduling_working_hours_start,
+            "scheduling_working_hours_end": self.scheduling_working_hours_end,
+            "scheduling_days": self.scheduling_days or [],
         }
 
 

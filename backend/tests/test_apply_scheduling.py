@@ -1,8 +1,11 @@
-"""GET /api/apply/<token> and POST /api/apply/<token>/submit: the prescreen
-+ scheduling page and the atomic booking step. Google Calendar itself is
-always mocked at the routes.apply level (get_free_slots/create_event/
-delete_event) - see test_calendar_availability.py for coverage of
-google_calendar.py's own logic against those same seams.
+"""GET /api/apply/<token> and POST /api/apply/<token>/submit: the scheduling
+page and the atomic booking step. Screening questions are answered earlier,
+as part of POST /api/apply itself (see test_apply.py) - a token is only ever
+issued to a candidate whose answers already qualified them, so nothing here
+deals with screening questions at all. Google Calendar itself is always
+mocked at the routes.apply level (get_free_slots/create_event/delete_event)
+- see test_calendar_availability.py for coverage of google_calendar.py's own
+logic against those same seams.
 """
 from datetime import datetime, timedelta
 
@@ -12,12 +15,10 @@ import routes.apply as apply_module
 from google_calendar import CalendarNotConnectedError, encrypt_token
 from models import (
     Candidate,
-    CandidateScreeningAnswer,
     CandidateStageProgress,
     CalendarConnection,
     Interview,
     MeetingStageTemplate,
-    ScreeningQuestion,
     db,
     iso_utc,
 )
@@ -45,6 +46,10 @@ def schedulable_stage(app, meeting_stage, user):
 
 @pytest.fixture
 def applied_candidate(app, job):
+    """A candidate who already passed screening (or applied to a job with
+    none) and has a live token - i.e. exactly what POST /api/apply leaves
+    behind for a qualified candidate. See test_apply.py for how that
+    qualification decision itself gets made."""
     with app.app_context():
         candidate = Candidate(
             name='Jane Applicant', email='jane@example.com', job_id=job.id,
@@ -82,14 +87,7 @@ def test_get_application_410_for_expired_token(app, client, job):
     assert resp.status_code == 410
 
 
-def test_get_application_returns_questions_and_slots(app, client, applied_candidate, schedulable_stage, monkeypatch):
-    with app.app_context():
-        db.session.add(ScreeningQuestion(
-            meeting_stage_template_id=schedulable_stage.id, question_text='Do you have a car?',
-            answer_options=['Yes', 'No'], qualified_answers=['Yes'],
-        ))
-        db.session.commit()
-
+def test_get_application_returns_stage_and_slots(app, client, applied_candidate, schedulable_stage, monkeypatch):
     fixed_slots = [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))]
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: fixed_slots)
 
@@ -102,8 +100,7 @@ def test_get_application_returns_questions_and_slots(app, client, applied_candid
     assert data['meeting_type'] == schedulable_stage.meeting_type
     assert data['duration_minutes'] == schedulable_stage.duration_minutes
     assert data['organization_name']  # falls back to a generic phrase if unset - just needs to be present
-    assert len(data['screening_questions']) == 1
-    assert data['screening_questions'][0]['question_text'] == 'Do you have a car?'
+    assert 'screening_questions' not in data  # answered earlier, at apply time - see test_apply.py
     assert data['available_slots'] == [{"start": iso_utc(FAR_FUTURE), "end": iso_utc(FAR_FUTURE + timedelta(minutes=20))}]
 
 
@@ -136,7 +133,7 @@ def test_get_application_calendar_error_returns_empty_slots_not_500(app, client,
     assert resp.get_json()['available_slots'] == []
 
 
-def test_get_application_already_scheduled_has_no_questions_or_slots(app, client, applied_candidate, job):
+def test_get_application_already_scheduled_has_no_slots(app, client, applied_candidate, job):
     with app.app_context():
         c = Candidate.query.get(applied_candidate.id)
         c.scheduled = True
@@ -148,7 +145,6 @@ def test_get_application_already_scheduled_has_no_questions_or_slots(app, client
     data = resp.get_json()
     assert data['job_title'] == job.title
     assert data['already_scheduled'] is True
-    assert 'screening_questions' not in data
     assert 'available_slots' not in data
 
 
@@ -176,7 +172,6 @@ def test_get_application_already_scheduled_includes_the_booked_interview(
 
 def _submit_payload(**overrides):
     defaults = {
-        "answers": [],
         "slot_start": iso_utc(FAR_FUTURE),
         "slot_end": iso_utc(FAR_FUTURE + timedelta(minutes=20)),
     }
@@ -201,15 +196,6 @@ def test_submit_409_when_already_scheduled(app, client, applied_candidate):
 
 def test_submit_400_when_job_has_no_schedulable_stage(client, applied_candidate):
     resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
-    assert resp.status_code == 400
-
-
-def test_submit_400_for_a_question_from_another_job(app, client, applied_candidate, schedulable_stage, monkeypatch):
-    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
-    resp = client.post(
-        f'/api/apply/{applied_candidate.application_token}/submit',
-        json=_submit_payload(answers=[{"question_id": 999999, "answer_text": "x"}]),
-    )
     assert resp.status_code == 400
 
 
@@ -240,21 +226,10 @@ def test_submit_503_when_calendar_event_creation_fails(app, client, applied_cand
 def test_submit_success_books_everything_and_sends_confirmation(
     app, client, applied_candidate, schedulable_stage, monkeypatch, mock_confirmation_email,
 ):
-    with app.app_context():
-        question = ScreeningQuestion(
-            meeting_stage_template_id=schedulable_stage.id, question_text='Do you have a car?',
-        )
-        db.session.add(question)
-        db.session.commit()
-        question_id = question.id
-
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
     monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: ('google-event-1', 'https://meet.google.com/abc-defg-hij'))
 
-    resp = client.post(
-        f'/api/apply/{applied_candidate.application_token}/submit',
-        json=_submit_payload(answers=[{"question_id": question_id, "answer_text": "Yes"}]),
-    )
+    resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
 
     assert resp.status_code == 201
     body = resp.get_json()
@@ -265,9 +240,6 @@ def test_submit_success_books_everything_and_sends_confirmation(
         candidate = Candidate.query.get(applied_candidate.id)
         assert candidate.scheduled is True
         assert candidate.stage == 'Interview'
-
-        answer = CandidateScreeningAnswer.query.filter_by(candidate_id=candidate.id, question_id=question_id).first()
-        assert answer is not None and answer.answer_text == 'Yes'
 
         interview = Interview.query.filter_by(google_event_id='google-event-1').first()
         assert interview is not None

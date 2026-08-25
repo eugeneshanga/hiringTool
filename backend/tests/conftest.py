@@ -22,6 +22,11 @@ def app():
             'TESTING': True,
             'JWT_SECRET_KEY': 'test-secret',
             'UPLOAD_FOLDER': upload_dir,
+            # Belt-and-suspenders: create_app() never starts the background
+            # scheduler itself (see app.py's __main__ block / scheduled_jobs.py),
+            # so this doesn't currently do anything in tests - set anyway so
+            # it stays correct if that ever changes.
+            'SCHEDULER_ENABLED': False,
         })
         with flask_app.app_context():
             db.create_all()
@@ -50,6 +55,24 @@ def user(app):
 def auth_headers(app, user):
     with app.app_context():
         token = create_access_token(identity=str(user.id), additional_claims={'account_type': 'user'})
+    return {'Authorization': f'Bearer {token}'}
+
+
+@pytest.fixture
+def admin_user(app):
+    with app.app_context():
+        u = User(first_name='Admin', last_name='User', email='admin@example.com', role='admin')
+        u.set_password('password123')
+        db.session.add(u)
+        db.session.commit()
+        db.session.refresh(u)
+        return u
+
+
+@pytest.fixture
+def admin_headers(app, admin_user):
+    with app.app_context():
+        token = create_access_token(identity=str(admin_user.id), additional_claims={'account_type': 'user'})
     return {'Authorization': f'Bearer {token}'}
 
 

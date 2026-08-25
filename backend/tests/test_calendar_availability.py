@@ -11,7 +11,7 @@ import pytest
 
 import google_calendar
 from google_calendar import CalendarNotConnectedError, encrypt_token
-from models import CalendarConnection, db
+from models import CalendarConnection, Organization, db
 
 # Always well in the future relative to whenever the suite actually runs, so
 # MIN_LEAD_TIME_HOURS filtering never accidentally excludes these.
@@ -32,9 +32,13 @@ def connected_user(app, user):
 
 # --- _candidate_slot_windows --------------------------------------------------
 
+ALL_WEEKDAYS = set(range(7))
+
+
 def test_candidate_slot_windows_covers_working_hours_at_the_given_duration():
     slots = google_calendar._candidate_slot_windows(
-        window_days=0, duration_minutes=60, working_hours_start=9, working_hours_end=17, tz=ZoneInfo('UTC'),
+        window_days=0, duration_minutes=60, working_hours_start=9, working_hours_end=17,
+        allowed_weekdays=ALL_WEEKDAYS, tz=ZoneInfo('UTC'),
     )
 
     assert len(slots) == 8  # 9-10, 10-11, ..., 16-17
@@ -46,12 +50,77 @@ def test_candidate_slot_windows_covers_working_hours_at_the_given_duration():
 
 def test_candidate_slot_windows_spans_multiple_days():
     slots = google_calendar._candidate_slot_windows(
-        window_days=2, duration_minutes=480, working_hours_start=9, working_hours_end=17, tz=ZoneInfo('UTC'),
+        window_days=2, duration_minutes=480, working_hours_start=9, working_hours_end=17,
+        allowed_weekdays=ALL_WEEKDAYS, tz=ZoneInfo('UTC'),
     )
     assert len(slots) == 3  # one full-working-day slot per day, 3 days (0..2 inclusive)
 
 
-# --- get_free_slots ------------------------------------------------------------
+def test_candidate_slot_windows_skips_disallowed_weekdays():
+    # A wide enough window (14 days) to guarantee it spans every weekday at
+    # least once, regardless of which day "today" happens to be when the
+    # suite runs.
+    monday_only = google_calendar._candidate_slot_windows(
+        window_days=13, duration_minutes=480, working_hours_start=9, working_hours_end=17,
+        allowed_weekdays={0}, tz=ZoneInfo('UTC'),
+    )
+    assert len(monday_only) == 2  # 14-day window contains exactly 2 Mondays
+    assert all(start.weekday() == 0 for start, _end in monday_only)
+
+
+# --- get_free_slots reads settings from Organization ---------------------------
+
+def test_get_free_slots_uses_organization_scheduling_settings(app, connected_user, monkeypatch):
+    """Confirms get_free_slots actually plumbs Organization.scheduling_* into
+    _candidate_slot_windows, rather than something stale/hardcoded - the
+    settings themselves (working hours math, weekday filtering) are covered
+    directly against _candidate_slot_windows above."""
+    with app.app_context():
+        db.session.add(Organization(
+            name='Test Org', scheduling_timezone='America/New_York',
+            scheduling_working_hours_start=10, scheduling_working_hours_end=14,
+            scheduling_days=[2],  # Wednesday only
+        ))
+        db.session.commit()
+
+    captured = {}
+
+    def _capture(window_days, duration_minutes, working_hours_start, working_hours_end, allowed_weekdays, tz):
+        captured.update(
+            working_hours_start=working_hours_start, working_hours_end=working_hours_end,
+            allowed_weekdays=allowed_weekdays, tz=str(tz),
+        )
+        return []
+
+    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', _capture)
+
+    with app.app_context():
+        google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=7)
+
+    assert captured == {
+        'working_hours_start': 10, 'working_hours_end': 14, 'allowed_weekdays': {2}, 'tz': 'America/New_York',
+    }
+
+
+def test_get_free_slots_falls_back_to_defaults_with_no_organization_row(app, connected_user, monkeypatch):
+    captured = {}
+
+    def _capture(window_days, duration_minutes, working_hours_start, working_hours_end, allowed_weekdays, tz):
+        captured.update(
+            working_hours_start=working_hours_start, working_hours_end=working_hours_end,
+            allowed_weekdays=allowed_weekdays, tz=str(tz),
+        )
+        return []
+
+    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', _capture)
+
+    with app.app_context():
+        google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=7)
+
+    assert captured == {
+        'working_hours_start': 9, 'working_hours_end': 17, 'allowed_weekdays': {0, 1, 2, 3, 4}, 'tz': 'UTC',
+    }
+
 
 def test_get_free_slots_raises_when_never_connected(app, user):
     with app.app_context():

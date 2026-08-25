@@ -60,6 +60,24 @@ def test_candidate_sees_questions_across_all_job_stages(client, auth_headers, jo
     assert question_texts == {'Stage 1 question', 'Stage 2 question'}
 
 
+def test_candidate_detail_includes_qualified_answers(client, auth_headers, job, meeting_stage, candidate_factory):
+    """Lets the recruiter UI show whether a given answer actually qualifies
+    the candidate (see routes/apply.py's _is_qualifying_answer), not just
+    whether the question was answered."""
+    client.post(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}/screening-questions',
+        headers=auth_headers, json={
+            'question_text': 'Do you have a car?', 'answer_options': ['Yes', 'No'], 'qualified_answers': ['Yes'],
+        },
+    )
+
+    candidate = candidate_factory(job_id=job.id)
+    detail = client.get(f'/api/candidates/{candidate.id}', headers=auth_headers).get_json()
+
+    answer = next(a for a in detail['screening_answers'] if a['question_text'] == 'Do you have a car?')
+    assert answer['qualified_answers'] == ['Yes']
+
+
 def test_saving_answer_rejects_question_from_a_different_job(client, auth_headers, job, meeting_stage, candidate_factory):
     other_job = client.post('/api/jobs', headers=auth_headers, json={'title': 'Other Job'}).get_json()
     question = client.post(

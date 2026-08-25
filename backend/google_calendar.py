@@ -23,7 +23,7 @@ import requests
 from cryptography.fernet import Fernet
 from flask import current_app
 
-from models import CalendarConnection, db, iso_utc
+from models import CalendarConnection, Organization, db, iso_utc
 
 GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -224,15 +224,18 @@ def _freebusy_request(access_token, time_min, time_max):
     ]
 
 
-def _candidate_slot_windows(window_days, duration_minutes, working_hours_start, working_hours_end, tz):
+def _candidate_slot_windows(window_days, duration_minutes, working_hours_start, working_hours_end, allowed_weekdays, tz):
     """Every duration_minutes-sized slot inside [working_hours_start,
-    working_hours_end) in timezone `tz`, for today through `window_days`
-    days out - before any freebusy/lead-time filtering. Returns (start, end)
-    naive-UTC datetime tuples, ascending."""
+    working_hours_end) in timezone `tz`, on any day whose date.weekday()
+    (Monday=0 .. Sunday=6) is in `allowed_weekdays`, for today through
+    `window_days` days out - before any freebusy/lead-time filtering.
+    Returns (start, end) naive-UTC datetime tuples, ascending."""
     slots = []
     today_local = datetime.now(tz).date()
     for day_offset in range(window_days + 1):
         day = today_local + timedelta(days=day_offset)
+        if day.weekday() not in allowed_weekdays:
+            continue
         day_end_local = datetime.combine(day, time(hour=working_hours_end), tzinfo=tz)
         slot_start_local = datetime.combine(day, time(hour=working_hours_start), tzinfo=tz)
         while slot_start_local + timedelta(minutes=duration_minutes) <= day_end_local:
@@ -247,11 +250,11 @@ def _candidate_slot_windows(window_days, duration_minutes, working_hours_start, 
 
 def get_free_slots(user, duration_minutes, window_days):
     """Every open duration_minutes-sized slot on `user`'s connected Google
-    Calendar over the next `window_days` days, bounded to the app's
-    configured working-hours window/timezone (config.py's SCHEDULING_*
-    settings) and excluding anything within MIN_LEAD_TIME_HOURS of right
-    now. Returns a list of (start, end) naive-UTC datetime tuples,
-    ascending.
+    Calendar over the next `window_days` days, bounded to the org's
+    configured working-hours window/timezone/allowed days (Organization's
+    scheduling_* columns, editable from Settings - see routes/organization.py)
+    and excluding anything within MIN_LEAD_TIME_HOURS of right now. Returns a
+    list of (start, end) naive-UTC datetime tuples, ascending.
 
     Raises CalendarNotConnectedError / CalendarTokenError (from
     get_valid_access_token) or requests.RequestException on a Google API
@@ -261,12 +264,18 @@ def get_free_slots(user, duration_minutes, window_days):
     """
     access_token = get_valid_access_token(user)
 
-    tz = ZoneInfo(current_app.config['SCHEDULING_TIMEZONE'])
+    # No auto-create here (unlike routes/organization.py's own
+    # _get_organization()) - falls back to the same defaults a fresh
+    # Organization row would have, without the side effect of creating one
+    # from what's ultimately a read path.
+    org = Organization.query.first()
+    tz = ZoneInfo(org.scheduling_timezone if org else 'UTC')
+    working_hours_start = org.scheduling_working_hours_start if org else 9
+    working_hours_end = org.scheduling_working_hours_end if org else 17
+    allowed_weekdays = set(org.scheduling_days if org and org.scheduling_days else [0, 1, 2, 3, 4])
+
     candidate_slots = _candidate_slot_windows(
-        window_days, duration_minutes,
-        current_app.config['SCHEDULING_WORKING_HOURS_START'],
-        current_app.config['SCHEDULING_WORKING_HOURS_END'],
-        tz,
+        window_days, duration_minutes, working_hours_start, working_hours_end, allowed_weekdays, tz,
     )
     if not candidate_slots:
         return []
