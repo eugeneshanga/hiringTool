@@ -11,7 +11,19 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-fileConfig(config.config_file_name)
+#
+# disable_existing_loggers=False (fileConfig's default is True) - the plain
+# default silently DISABLES every logger that already exists at this point
+# and isn't one of alembic.ini's own [loggers] (root/sqlalchemy/alembic/
+# flask_migrate) - which includes Flask's app.logger, since create_app()
+# already ran (and app.py's own __main__ block calls upgrade(), triggering
+# this file, *after* create_app()). That silently broke every
+# current_app.logger call app-wide on a normal `python3 app.py` run (though
+# not in tests, which never call upgrade()/exercise Alembic at all) until
+# this was caught testing the public-apply email flow end-to-end - the
+# "grab the link from the console" ConsoleEmailProvider literally couldn't,
+# app.logger.disabled was True.
+fileConfig(config.config_file_name, disable_existing_loggers=False)
 logger = logging.getLogger('alembic.env')
 
 

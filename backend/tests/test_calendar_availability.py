@@ -1,0 +1,159 @@
+"""google_calendar.py's availability/booking additions: slot generation,
+get_free_slots' busy/lead-time filtering, create_event's request body and
+Meet-link extraction, and delete_event. Nothing here talks to real Google
+APIs - the low-level *_request functions are monkeypatched out, the same
+way test_calendar_auth.py mocks exchange_code_for_tokens/fetch_google_email.
+"""
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+
+import google_calendar
+from google_calendar import CalendarNotConnectedError, encrypt_token
+from models import CalendarConnection, db
+
+# Always well in the future relative to whenever the suite actually runs, so
+# MIN_LEAD_TIME_HOURS filtering never accidentally excludes these.
+FAR_FUTURE_YEAR = 2035
+
+
+@pytest.fixture
+def connected_user(app, user):
+    with app.app_context():
+        db.session.add(CalendarConnection(
+            user_id=user.id, google_email='interviewer@gmail.com',
+            encrypted_refresh_token=encrypt_token('refresh-456'),
+            access_token='valid-access-token', token_expiry=datetime.utcnow() + timedelta(minutes=30),
+        ))
+        db.session.commit()
+    return user
+
+
+# --- _candidate_slot_windows --------------------------------------------------
+
+def test_candidate_slot_windows_covers_working_hours_at_the_given_duration():
+    slots = google_calendar._candidate_slot_windows(
+        window_days=0, duration_minutes=60, working_hours_start=9, working_hours_end=17, tz=ZoneInfo('UTC'),
+    )
+
+    assert len(slots) == 8  # 9-10, 10-11, ..., 16-17
+    first_start, first_end = slots[0]
+    assert first_start.hour == 9 and first_end.hour == 10
+    last_start, last_end = slots[-1]
+    assert last_start.hour == 16 and last_end.hour == 17
+
+
+def test_candidate_slot_windows_spans_multiple_days():
+    slots = google_calendar._candidate_slot_windows(
+        window_days=2, duration_minutes=480, working_hours_start=9, working_hours_end=17, tz=ZoneInfo('UTC'),
+    )
+    assert len(slots) == 3  # one full-working-day slot per day, 3 days (0..2 inclusive)
+
+
+# --- get_free_slots ------------------------------------------------------------
+
+def test_get_free_slots_raises_when_never_connected(app, user):
+    with app.app_context():
+        with pytest.raises(CalendarNotConnectedError):
+            google_calendar.get_free_slots(user, duration_minutes=30, window_days=1)
+
+
+def test_get_free_slots_excludes_busy_blocks(app, connected_user, monkeypatch):
+    fixed_slots = [
+        (datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0), datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30)),
+        (datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30), datetime(FAR_FUTURE_YEAR, 1, 1, 10, 0)),
+        (datetime(FAR_FUTURE_YEAR, 1, 1, 10, 0), datetime(FAR_FUTURE_YEAR, 1, 1, 10, 30)),
+    ]
+    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', lambda *a, **k: fixed_slots)
+    # Busy for the middle slot only - overlaps [9:30, 10:00).
+    monkeypatch.setattr(
+        google_calendar, '_freebusy_request',
+        lambda access_token, time_min, time_max: [
+            (datetime(FAR_FUTURE_YEAR, 1, 1, 9, 45), datetime(FAR_FUTURE_YEAR, 1, 1, 9, 50)),
+        ],
+    )
+
+    with app.app_context():
+        result = google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=1)
+
+    assert result == [fixed_slots[0], fixed_slots[2]]
+
+
+def test_get_free_slots_excludes_slots_inside_the_lead_time_window(app, connected_user, monkeypatch):
+    too_soon = datetime.utcnow() + timedelta(minutes=30)  # inside MIN_LEAD_TIME_HOURS
+    plenty_of_notice = datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0)
+    fixed_slots = [
+        (too_soon, too_soon + timedelta(minutes=30)),
+        (plenty_of_notice, plenty_of_notice + timedelta(minutes=30)),
+    ]
+    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', lambda *a, **k: fixed_slots)
+    monkeypatch.setattr(google_calendar, '_freebusy_request', lambda *a, **k: [])
+
+    with app.app_context():
+        result = google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=1)
+
+    assert result == [fixed_slots[1]]
+
+
+# --- create_event ---------------------------------------------------------------
+
+def test_create_event_requests_a_meet_link_and_extracts_it(app, connected_user, monkeypatch):
+    captured = {}
+
+    def _fake_request(access_token, body):
+        captured['access_token'] = access_token
+        captured['body'] = body
+        return {
+            'id': 'google-event-123',
+            'conferenceData': {'entryPoints': [
+                {'entryPointType': 'video', 'uri': 'https://meet.google.com/abc-defg-hij'},
+                {'entryPointType': 'phone', 'uri': 'tel:+1-555-0100'},
+            ]},
+        }
+
+    monkeypatch.setattr(google_calendar, '_create_calendar_event_request', _fake_request)
+
+    with app.app_context():
+        event_id, meeting_link = google_calendar.create_event(
+            connected_user, summary='Interview - Jane', description='desc',
+            start=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0), end=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30),
+            attendee_email='jane@example.com',
+        )
+
+    assert event_id == 'google-event-123'
+    assert meeting_link == 'https://meet.google.com/abc-defg-hij'
+    assert captured['access_token'] == 'valid-access-token'
+    assert captured['body']['conferenceData']['createRequest']['conferenceSolutionKey'] == {'type': 'hangoutsMeet'}
+    assert captured['body']['attendees'] == [{'email': 'jane@example.com'}]
+
+
+def test_create_event_meeting_link_is_none_without_a_video_entry_point(app, connected_user, monkeypatch):
+    monkeypatch.setattr(
+        google_calendar, '_create_calendar_event_request',
+        lambda access_token, body: {'id': 'google-event-456', 'conferenceData': {}},
+    )
+
+    with app.app_context():
+        event_id, meeting_link = google_calendar.create_event(
+            connected_user, summary='Interview', description='desc',
+            start=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0), end=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30),
+        )
+
+    assert event_id == 'google-event-456'
+    assert meeting_link is None
+
+
+# --- delete_event ---------------------------------------------------------------
+
+def test_delete_event_calls_the_low_level_request(app, connected_user, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        google_calendar, '_delete_calendar_event_request',
+        lambda access_token, event_id: captured.update(access_token=access_token, event_id=event_id),
+    )
+
+    with app.app_context():
+        google_calendar.delete_event(connected_user, 'google-event-123')
+
+    assert captured == {'access_token': 'valid-access-token', 'event_id': 'google-event-123'}

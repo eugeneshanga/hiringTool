@@ -1,3 +1,5 @@
+import tempfile
+
 import pytest
 from flask_jwt_extended import create_access_token
 
@@ -10,17 +12,22 @@ def app():
     """A fresh app per test, backed by an in-memory SQLite DB — never touches
     the real dev DB. db.create_all() (not Alembic) is intentional here: tests
     want the schema built straight from models.py, not routed through
-    migration history."""
-    flask_app = create_app({
-        'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
-        'TESTING': True,
-        'JWT_SECRET_KEY': 'test-secret',
-    })
-    with flask_app.app_context():
-        db.create_all()
-        yield flask_app
-        db.session.remove()
-        db.drop_all()
+    migration history. UPLOAD_FOLDER points at a throwaway temp dir so any
+    test exercising a real file upload (resume, onboarding doc, org logo/
+    banner) never touches backend/uploads/ - that directory is real local
+    dev data, not something a test run should write into or delete."""
+    with tempfile.TemporaryDirectory() as upload_dir:
+        flask_app = create_app({
+            'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
+            'TESTING': True,
+            'JWT_SECRET_KEY': 'test-secret',
+            'UPLOAD_FOLDER': upload_dir,
+        })
+        with flask_app.app_context():
+            db.create_all()
+            yield flask_app
+            db.session.remove()
+            db.drop_all()
 
 
 @pytest.fixture

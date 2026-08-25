@@ -1,8 +1,34 @@
+import secrets
+
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
+
+# Characters excluded from generated confirmation codes because they're easy
+# to mis-key or mis-read off a phone screen: 0/O, 1/I/l.
+_CONFIRMATION_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz'
+
+
+def generate_application_token():
+    """A random, unguessable token for the public apply-flow link
+    (Candidate.application_token) - 64 hex characters (32 bytes of entropy),
+    generated with `secrets` (not `random`) since it doubles as the only
+    thing standing between the public and someone else's prescreen/scheduling
+    page."""
+    return secrets.token_hex(32)
+
+
+def generate_confirmation_code():
+    """A short, human-readable code for the public status-lookup page
+    (Interview.confirmation_code) - 9 characters from an alphabet with
+    visually-ambiguous characters removed, since candidates may read this off
+    a screen or type it in by hand. Not unique by construction - callers must
+    retry on a collision (astronomically rare at this length/alphabet, but
+    the column is still declared unique to make it a hard guarantee, not a
+    hopeful one)."""
+    return ''.join(secrets.choice(_CONFIRMATION_CODE_ALPHABET) for _ in range(9))
 
 
 def iso_utc(dt):
@@ -158,6 +184,10 @@ class Job(db.Model):
     )
 
     @property
+    def location(self):
+        return ", ".join(filter(None, [self.city, self.state])) or None
+
+    @property
     def screening_questions(self):
         """Every pre-screening question across all of this job's stages —
         questions live on a stage (see MeetingStageTemplate.screening_questions)
@@ -191,7 +221,7 @@ class Job(db.Model):
             "state": self.state,
             "postal_code": self.postal_code,
             "country": self.country,
-            "location": ", ".join(filter(None, [self.city, self.state])) or None,
+            "location": self.location,
             "min_salary": self.min_salary,
             "max_salary": self.max_salary,
             "salary_period": self.salary_period,
@@ -228,6 +258,14 @@ class MeetingStageTemplate(db.Model):
     # How far in advance a candidate can book a session for this stage.
     scheduling_window_days = db.Column(db.Integer, default=7, nullable=False)
     sort_order = db.Column(db.Integer, default=0, nullable=False)
+    # Which recruiter/interviewer's connected Google Calendar the public apply
+    # flow checks for availability and books onto (see google_calendar.py /
+    # CalendarConnection - one connection per User, reused across every stage
+    # they're assigned to). Nullable: a stage with no interviewer assigned (or
+    # whose assigned User hasn't connected a calendar) simply has no bookable
+    # slots via the public flow - routes/apply.py fails safe on that rather
+    # than falling back to some other calendar.
+    interviewer_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     VALID_MEETING_TYPES = (
@@ -243,6 +281,7 @@ class MeetingStageTemplate(db.Model):
     onboarding_items = db.relationship(
         'OnboardingDocumentItem', backref='meeting_stage_template', cascade='all, delete-orphan', lazy=True
     )
+    interviewer = db.relationship('User')
 
     def to_dict(self):
         return {
@@ -256,6 +295,8 @@ class MeetingStageTemplate(db.Model):
             "instructions": self.instructions,
             "scheduling_window_days": self.scheduling_window_days,
             "sort_order": self.sort_order,
+            "interviewer_user_id": self.interviewer_user_id,
+            "interviewer_name": self.interviewer.name if self.interviewer else None,
         }
 
 
@@ -351,6 +392,22 @@ class Interview(db.Model):
     scheduled_start = db.Column(db.DateTime, nullable=False)
     scheduled_end = db.Column(db.DateTime, nullable=False)
     capacity = db.Column(db.Integer, default=1, nullable=False)
+    # The three columns below are only populated for an interview booked
+    # through the public apply flow (routes/apply.py) - null for anything a
+    # recruiter creates directly (manual sessions, ad-hoc interviews).
+    # 9-char human-typeable code a candidate uses on the public status-lookup
+    # page (see models.generate_confirmation_code) instead of needing an
+    # account/login.
+    confirmation_code = db.Column(db.String(9), unique=True, index=True, nullable=True)
+    # The Google Meet link from conferenceData on the created calendar event -
+    # duplicated here (rather than only ever re-fetched from Google) so the
+    # status page and confirmation email can display it without another API
+    # call.
+    meeting_link = db.Column(db.String(500), nullable=True)
+    # Google Calendar event id backing this interview, so it can later be
+    # updated/cancelled on Google's side (e.g. if a recruiter cancels the
+    # interview in-app) - not exposed via to_dict, internal bookkeeping only.
+    google_event_id = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     VALID_MEETING_TYPES = ('Interview', 'Orientation', 'Other')
@@ -373,6 +430,8 @@ class Interview(db.Model):
             "capacity": self.capacity,
             "scheduled_count": len(self.candidates),
             "candidates": [{"id": c.id, "name": c.display_name} for c in self.candidates],
+            "confirmation_code": self.confirmation_code,
+            "meeting_link": self.meeting_link,
             "created_at": iso_utc(self.created_at)
         }
 
@@ -409,9 +468,29 @@ class Candidate(db.Model):
     scheduled = db.Column(db.Boolean, default=False)
     city = db.Column(db.String(120))
     state = db.Column(db.String(60))
+    # Street address - only collected via the public apply flow today
+    # (routes/apply.py); candidates added by hand or self-registered have
+    # this null, same as resume below.
+    address_line1 = db.Column(db.String(255))
+    postal_code = db.Column(db.String(20))
     source = db.Column(db.String(120))  # e.g. Indeed, Referral
     resume_original_filename = db.Column(db.String(255))
     resume_stored_filename = db.Column(db.String(255))
+    # Answers to the public apply flow's two fixed work-eligibility
+    # questions (routes/apply.py) - null for candidates who didn't come
+    # through that flow. Deliberately informational only: neither one blocks
+    # submission or auto-disqualifies a candidate; a recruiter reviews them
+    # like anything else on the candidate's profile.
+    work_authorized = db.Column(db.Boolean, nullable=True)
+    requires_visa_sponsorship = db.Column(db.Boolean, nullable=True)
+    # The public apply flow's link back to this candidate's prescreen +
+    # scheduling page (routes/apply.py) - null for candidates created any
+    # other way (recruiter-added, self-registered account). 64 hex chars from
+    # models.generate_application_token; expires_at bounds how long that link
+    # stays live, both to fail closed on a stale email and so dedupe (same
+    # email+job re-applying) knows whether the existing row is still "live".
+    application_token = db.Column(db.String(64), unique=True, index=True, nullable=True)
+    application_token_expires_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -458,10 +537,14 @@ class Candidate(db.Model):
             "scheduled": self.scheduled,
             "city": self.city,
             "state": self.state,
+            "address_line1": self.address_line1,
+            "postal_code": self.postal_code,
             "location": self.location,
             "source": self.source,
             "has_resume": self.resume_stored_filename is not None,
             "resume_filename": self.resume_original_filename,
+            "work_authorized": self.work_authorized,
+            "requires_visa_sponsorship": self.requires_visa_sponsorship,
             "created_at": iso_utc(self.created_at),
             "updated_at": iso_utc(self.updated_at or self.created_at),
             "current_stage": self._current_stage_summary(),

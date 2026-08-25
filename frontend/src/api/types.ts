@@ -78,6 +78,18 @@ export interface MeetingStageTemplate {
   instructions: string | null
   scheduling_window_days: number
   sort_order: number
+  // Which User's connected Google Calendar the public apply flow checks for
+  // availability and books onto (see google_calendar.py) - only meaningful
+  // alongside duration_minutes, same as needsDuration() gates in the editor.
+  interviewer_user_id: number | null
+  interviewer_name: string | null
+}
+
+// A user eligible to be assigned as a stage's interviewer - id/name only
+// (see GET /api/organization/interviewers, deliberately smaller than User).
+export interface Interviewer {
+  id: number
+  name: string
 }
 
 // A stage already defined on some other job, offered up in the "add existing
@@ -139,10 +151,17 @@ export interface Candidate {
   scheduled: boolean
   city: string | null
   state: string | null
+  address_line1: string | null
+  postal_code: string | null
   location: string | null
   source: string | null
   has_resume: boolean
   resume_filename: string | null
+  // Answers to the public apply flow's two fixed work-eligibility questions
+  // (routes/apply.py) - null for candidates who didn't come through it.
+  // Informational only, never auto-disqualifying.
+  work_authorized: boolean | null
+  requires_visa_sponsorship: boolean | null
   created_at: string
   updated_at: string
   current_stage: CurrentStageSummary | null
@@ -245,4 +264,79 @@ export interface Interview {
   scheduled_count: number
   candidates: InterviewCandidate[]
   created_at: string
+}
+
+// --- Public apply flow (no login — see backend/routes/apply.py, status.py) ---
+
+// Deliberately smaller than Job — a hand-picked public contract, not the
+// recruiter-side shape (see routes/apply.py's get_public_job docstring).
+export interface PublicJob {
+  id: number
+  title: string
+  location: string | null
+  description: string | null
+  highlights: string[]
+  job_type: JobType[]
+  min_salary: number | null
+  max_salary: number | null
+  salary_period: SalaryPeriod | null
+  // For the apply form's EEO notice - the real Organization name (see
+  // models.Organization), not hardcoded, so it's never wrong/stale if the
+  // org's name ever changes or this is reused by a different deployment.
+  organization_name: string
+}
+
+export interface PublicScreeningQuestion {
+  id: number
+  question_text: string
+  answer_options: string[]
+}
+
+export interface PublicSlot {
+  start: string
+  end: string
+}
+
+export interface PublicApplicationOpen {
+  already_scheduled: false
+  job_title: string
+  organization_name: string
+  screening_questions: PublicScreeningQuestion[]
+  stage_name: string | null
+  meeting_type: StageMeetingType | null
+  duration_minutes: number | null
+  available_slots: PublicSlot[]
+}
+
+// The shape GET /api/apply/<token> returns once a candidate has already
+// booked through this same flow — no questions/slots, just what they booked.
+export interface PublicApplicationScheduled {
+  already_scheduled: true
+  job_title: string
+  organization_name: string
+  stage_name: string | null
+  scheduled_start: string | null
+  scheduled_end: string | null
+  meeting_link: string | null
+  confirmation_code: string | null
+}
+
+export type PublicApplication = PublicApplicationOpen | PublicApplicationScheduled
+
+export interface BookingConfirmation {
+  confirmation_code: string
+  meeting_link: string | null
+  scheduled_start: string
+  scheduled_end: string
+  status_url: string
+}
+
+export interface ApplicationStatus {
+  candidate_name: string | null
+  job_title: string | null
+  stage_name: string
+  scheduled_start: string
+  scheduled_end: string
+  meeting_link: string | null
+  confirmation_code: string
 }

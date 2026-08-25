@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from models import db, Interview, Job, MeetingStageTemplate
+from models import db, Interview, Job, MeetingStageTemplate, User
 from validation import validate_choice
 
 meeting_stages_bp = Blueprint('meeting_stages', __name__)
@@ -162,11 +162,16 @@ def update_meeting_stage(job_id, template_id):
         data['location'] = (data['location'] or '').strip() or None
     if 'instructions' in data:
         data['instructions'] = (data['instructions'] or '').strip() or None
+    if 'interviewer_user_id' in data:
+        interviewer_user_id = data['interviewer_user_id'] or None
+        if interviewer_user_id is not None and not User.query.get(interviewer_user_id):
+            return jsonify({"error": f"no user with id {interviewer_user_id}"}), 400
+        data['interviewer_user_id'] = interviewer_user_id
 
     old_stage_name = template.stage_name
     for field in (
         'meeting_type', 'stage_name', 'duration_minutes', 'default_capacity',
-        'location', 'instructions', 'scheduling_window_days',
+        'location', 'instructions', 'scheduling_window_days', 'interviewer_user_id',
     ):
         if field in data:
             setattr(template, field, data[field])

@@ -126,6 +126,19 @@ def remove_banner():
 # credential themselves and passes it to the new user out of band, same as
 # `flask create-user`/`flask reset-password` already require today.
 
+@organization_bp.route('/api/organization/interviewers', methods=['GET'])
+@jwt_required()
+def list_interviewers():
+    """Every active User, id+name only - for the stage editor's "who checks
+    this calendar" picker (see MeetingStageTemplate.interviewer_user_id).
+    Deliberately not @admin_required like list_users below: any recruiter
+    building out a job's stages needs to be able to assign an interviewer,
+    and this is a much smaller contract than the full user record (no email,
+    role, etc.) that route returns."""
+    users = User.query.filter_by(is_active=True).order_by(User.first_name.asc(), User.last_name.asc()).all()
+    return jsonify([{"id": u.id, "name": u.name} for u in users]), 200
+
+
 @organization_bp.route('/api/organization/users', methods=['GET'])
 @admin_required
 def list_users():

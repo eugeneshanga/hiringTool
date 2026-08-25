@@ -430,6 +430,15 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+/* Lighter-weight than .error-banner - a single field's own validation
+   message (e.g. PublicApplyPage's resume-too-large check) rather than a
+   form-wide error worth a boxed banner. */
+.field-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: -0.5rem 0 0;
+}
+
 /* Login */
 .login-page {
   min-height: 100vh;
@@ -467,6 +476,166 @@ button:disabled {
   padding: 2rem;
   text-align: center;
   color: var(--text-subtle);
+}
+
+/* Public apply flow (no login) - src/pages/publicApply/. Same centered-card
+   shell as .login-page/.login-card but wider, since these pages carry a job
+   description, a full screening-question form, and a slot picker rather
+   than just two fields. */
+.public-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: var(--bg);
+  padding: 3rem 1rem;
+}
+
+.public-card {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.public-job-description {
+  white-space: pre-wrap;
+}
+
+/* Honeypot: present in the DOM for a bot's form-filler to find and fill in,
+   invisible (not just hidden - off-screen, so a bot checking computed
+   visibility can't easily tell) to a real applicant. See PublicApplyPage. */
+.honeypot-field {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.public-slots-heading {
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.public-slot-day {
+  margin-bottom: 0.9rem;
+}
+
+.public-slot-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-result {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+}
+
+/* PublicApplyPage: job-details sidebar + Overview/Application tabs, wider
+   than the other public pages' centered .public-card since it's a real
+   two-column layout, not a single form. */
+.apply-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.apply-header {
+  margin-bottom: 1.5rem;
+}
+
+/* ScheduleApplicationPage's header (org name + meeting type/duration under
+   the "Schedule an interview - <job>" title). */
+.schedule-org-name {
+  font-weight: 600;
+  margin: 0.4rem 0 0.9rem;
+}
+
+.schedule-meta {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+}
+
+.calendar-duration-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-subtle);
+  font-size: 0.85rem;
+  margin: 0 0 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.apply-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 3rem;
+}
+
+.apply-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.apply-sidebar-field {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.apply-sidebar-field:last-child {
+  border-bottom: none;
+}
+
+.apply-sidebar-label {
+  font-size: 0.78rem;
+  color: var(--text-subtle);
+  margin: 0 0 0.25rem;
+}
+
+.apply-sidebar-value {
+  margin: 0;
+}
+
+.apply-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Section headings within the Overview/Application tab content - a divider
+   above each one except the first (which already follows the tab row). */
+.apply-section-heading {
+  font-size: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin: 0.5rem 0 0;
+}
+
+.apply-section-heading-first {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.eeo-notice {
+  line-height: 1.5;
 }
 
 /* Jobs list */
@@ -638,6 +807,14 @@ button:disabled {
 
 .calendar-day.today {
   box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* A day with at least one open slot - same tint as .chip-row-link:hover,
+   so "bookable" reads as a variant of the app's existing primary-tint
+   affordance rather than a one-off color. */
+.calendar-day.has-availability {
+  background: rgba(51, 85, 255, 0.08);
+  font-weight: 600;
 }
 
 .calendar-day.selected {
@@ -1167,6 +1344,18 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  /* Reset browser-default fieldset chrome (border/padding) - used as a
+     plain grouping element here, styled like the rest of the form rather
+     than a boxed-in native fieldset. */
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.radio-list legend {
+  padding: 0;
+  font-weight: 500;
+  margin-bottom: 0.2rem;
 }
 
 .radio-option {
@@ -1455,5 +1644,14 @@ button:disabled {
   .candidate-contact {
     align-items: flex-start;
     text-align: left;
+  }
+
+  .apply-layout {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .apply-sidebar {
+    width: 100%;
   }
 }

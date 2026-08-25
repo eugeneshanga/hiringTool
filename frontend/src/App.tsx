@@ -27,6 +27,9 @@ import { CandidateDetailsPage } from './pages/CandidateDetailsPage'
 import { CandidateLoginPage } from './pages/candidate/CandidateLoginPage'
 import { CandidateRegisterPage } from './pages/candidate/CandidateRegisterPage'
 import { CandidateHomePage } from './pages/candidate/CandidateHomePage'
+import { PublicApplyPage } from './pages/publicApply/PublicApplyPage'
+import { ScheduleApplicationPage } from './pages/publicApply/ScheduleApplicationPage'
+import { ApplicationStatusPage } from './pages/publicApply/ApplicationStatusPage'
 
 function App() {
   return (
@@ -37,6 +40,12 @@ function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/apply/login" element={<CandidateLoginPage />} />
           <Route path="/apply/register" element={<CandidateRegisterPage />} />
+          {/* Public apply flow — no login, see src/pages/publicApply/. Distinct
+              path segments from /apply, /apply/login, /apply/register above
+              (candidate-account territory) so there's no collision. */}
+          <Route path="/apply/job/:jobId" element={<PublicApplyPage />} />
+          <Route path="/apply/schedule/:token" element={<ScheduleApplicationPage />} />
+          <Route path="/status" element={<ApplicationStatusPage />} />
           <Route
             path="/apply"
             element={

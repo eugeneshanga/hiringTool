@@ -8,6 +8,7 @@ import type {
   CandidateDocumentSubmission,
   GoogleCalendarStatus,
   Interview,
+  Interviewer,
   Job,
   Organization,
   OnboardingDocumentItem,
@@ -133,12 +134,14 @@ export const api = {
       location?: string | null
       instructions?: string | null
       scheduling_window_days?: number
+      interviewer_user_id?: number | null
     },
   ) =>
     request<MeetingStageTemplate>(`/api/jobs/${jobId}/meeting-stages/${templateId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  listInterviewers: () => request<Interviewer[]>('/api/organization/interviewers'),
   moveMeetingStage: (jobId: number, templateId: number, direction: 'up' | 'down') =>
     request<MeetingStageTemplate[]>(`/api/jobs/${jobId}/meeting-stages/${templateId}/move`, {
       method: 'PATCH',
