@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api, ApiError } from '../../api/client'
 import { useSavedFlash } from '../../hooks/useSavedFlash'
-import type { CandidateDetail } from '../../api/types'
+import type { CandidateDetail, CandidateScreeningAnswer } from '../../api/types'
 
 interface ScreeningAnswersProps {
   candidate: CandidateDetail
@@ -17,8 +17,21 @@ function buildAnswerMap(candidate: CandidateDetail) {
   return map
 }
 
+type AnswerStatus = 'unanswered' | 'qualifying' | 'disqualifying'
+
+/** A free-text question (no answer_options) has no defined "wrong" answer -
+ * same rule routes/apply.py's _is_qualifying_answer applies automatically
+ * when a candidate applies through the public flow; this just surfaces that
+ * same evaluation to the recruiter for whatever the answer currently is. */
+function answerStatus(question: CandidateScreeningAnswer, value: string): AnswerStatus {
+  if (!value.trim()) return 'unanswered'
+  if (question.answer_options.length === 0) return 'qualifying'
+  return question.qualified_answers.includes(value) ? 'qualifying' : 'disqualifying'
+}
+
 /** The job's pre-screening question bank with this candidate's editable
- * answers — green check marks fill in as each one gets a non-empty answer. */
+ * answers — a check fills in once an answer qualifies the candidate, a ✕ if
+ * the answer disqualifies them, and it stays blank while unanswered. */
 export function ScreeningAnswers({ candidate, onCandidateChange, onError }: ScreeningAnswersProps) {
   const [answers, setAnswers] = useState<Record<number, string>>(() => buildAnswerMap(candidate))
   const [savingAnswers, setSavingAnswers] = useState(false)
@@ -60,9 +73,12 @@ export function ScreeningAnswers({ candidate, onCandidateChange, onError }: Scre
       <div className="screening-list">
         {candidate.screening_answers.map((a) => {
           const value = answers[a.question_id] ?? ''
+          const status = answerStatus(a, value)
           return (
             <div key={a.question_id} className="screening-row">
-              <span className={`screening-check${value.trim() ? ' answered' : ''}`}>✓</span>
+              <span className={`screening-check screening-check-${status}`}>
+                {status === 'disqualifying' ? '✕' : '✓'}
+              </span>
               <div className="screening-row-body">
                 <strong>{a.question_text}</strong>
                 {a.answer_options.length > 0 ? (

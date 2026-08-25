@@ -53,6 +53,7 @@ export function PublicApplyPage() {
   const [postalCode, setPostalCode] = useState('')
   const [resume, setResume] = useState<File | null>(null)
   const [resumeError, setResumeError] = useState<string | null>(null)
+  const [answers, setAnswers] = useState<Record<number, string>>({})
   const [workAuthorized, setWorkAuthorized] = useState<YesNo>('')
   const [requiresVisaSponsorship, setRequiresVisaSponsorship] = useState<YesNo>('')
   // Honeypot: invisible to a real applicant (see .honeypot-field in
@@ -112,6 +113,10 @@ export function PublicApplyPage() {
         postal_code: postalCode || undefined,
         job_id: id,
         resume,
+        answers: Object.entries(answers).map(([questionId, answerText]) => ({
+          question_id: Number(questionId),
+          answer_text: answerText,
+        })),
         work_authorized: workAuthorized,
         requires_visa_sponsorship: requiresVisaSponsorship,
         website,
@@ -142,10 +147,7 @@ export function PublicApplyPage() {
       <div className="public-page">
         <div className="card public-card">
           <h1>Thanks for applying{job ? ` to ${job.title}` : ''}!</h1>
-          <p>
-            Check your email for a link to answer a few quick questions and pick a time for your
-            interview.
-          </p>
+          <p>We'll review your application and follow up by email with next steps.</p>
         </div>
       </div>
     )
@@ -263,6 +265,39 @@ export function PublicApplyPage() {
                 />
               </label>
               {resumeError && <p className="field-error">{resumeError}</p>}
+
+              {job.screening_questions.length > 0 && (
+                <>
+                  <h2 className="apply-section-heading">Screening questions</h2>
+                  <div className="screening-list">
+                    {job.screening_questions.map((q) => (
+                      <label key={q.id}>
+                        {q.question_text}
+                        {q.answer_options.length > 0 ? (
+                          <select
+                            value={answers[q.id] ?? ''}
+                            onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                            required
+                          >
+                            <option value="">Select an answer…</option>
+                            {q.answer_options.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            value={answers[q.id] ?? ''}
+                            onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                            required
+                          />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <h2 className="apply-section-heading">Additional information</h2>
               <fieldset className="radio-list">

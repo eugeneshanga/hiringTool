@@ -50,6 +50,12 @@ export interface ApplyFormInput {
   // 'yes' | 'no' - see routes/apply.py's _parse_required_yes_no. Both required.
   work_authorized: 'yes' | 'no'
   requires_visa_sponsorship: 'yes' | 'no'
+  // The job's screening questions, answered here - see routes/apply.py's
+  // apply() for how qualification gets evaluated right after this submits.
+  // Sent as a JSON string field (not nested FormData entries - multipart
+  // has no native array/object representation), so the backend parses it
+  // back out with json.loads.
+  answers: { question_id: number; answer_text: string }[]
   // Honeypot — see PublicApplyPage. Always empty for a real person; the
   // backend blends a non-empty value into a normal-looking success response
   // rather than erroring, so there's nothing to distinguish here either.
@@ -62,17 +68,15 @@ export const publicApplyApi = {
   apply: (data: ApplyFormInput) => {
     const form = new FormData()
     for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined && value !== '') form.append(key, value as string | Blob)
+      if (value === undefined || value === '') continue
+      form.append(key, key === 'answers' ? JSON.stringify(value) : (value as string | Blob))
     }
     return publicRequestForm<{ status: string }>('/api/apply', form)
   },
 
   getApplication: (token: string) => publicRequest<PublicApplication>(`/api/apply/${encodeURIComponent(token)}`),
 
-  submitApplication: (
-    token: string,
-    data: { answers: { question_id: number; answer_text: string }[]; slot_start: string; slot_end: string },
-  ) =>
+  submitApplication: (token: string, data: { slot_start: string; slot_end: string }) =>
     publicRequest<BookingConfirmation>(`/api/apply/${encodeURIComponent(token)}/submit`, {
       method: 'POST',
       body: JSON.stringify(data),

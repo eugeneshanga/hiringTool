@@ -96,8 +96,28 @@ function ImagePicker({ label, hasImage, download, upload, remove, onChange }: Im
   )
 }
 
-/** The "Organization" tab: editable org name, plus logo/scheduling-page
- * banner branding. */
+const DAY_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Mon' },
+  { value: 1, label: 'Tue' },
+  { value: 2, label: 'Wed' },
+  { value: 3, label: 'Thu' },
+  { value: 4, label: 'Fri' },
+  { value: 5, label: 'Sat' },
+  { value: 6, label: 'Sun' },
+]
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
+
+function formatHourLabel(hour: number) {
+  const period = hour < 12 ? 'AM' : 'PM'
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12
+  return `${displayHour}:00 ${period}`
+}
+
+/** The "Organization" tab: editable org name, logo/scheduling-page banner
+ * branding, and the working-hours window/days the public apply flow's
+ * scheduler offers candidates (see google_calendar.get_free_slots, which
+ * reads these same fields). */
 export function OrganizationSettingsPage() {
   const { organization, reloadOrganization } = useOrganizationContext()
   const [name, setName] = useState(organization.name)
@@ -105,9 +125,32 @@ export function OrganizationSettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const nameSaved = useSavedFlash()
 
+  const [timezone, setTimezone] = useState(organization.scheduling_timezone)
+  const [startHour, setStartHour] = useState(organization.scheduling_working_hours_start)
+  const [endHour, setEndHour] = useState(organization.scheduling_working_hours_end)
+  const [days, setDays] = useState(organization.scheduling_days)
+  const [savingScheduling, setSavingScheduling] = useState(false)
+  const [schedulingError, setSchedulingError] = useState<string | null>(null)
+  const schedulingSaved = useSavedFlash()
+
   useEffect(() => {
     setName(organization.name)
   }, [organization.name])
+
+  const schedulingDaysKey = organization.scheduling_days.join(',')
+
+  useEffect(() => {
+    setTimezone(organization.scheduling_timezone)
+    setStartHour(organization.scheduling_working_hours_start)
+    setEndHour(organization.scheduling_working_hours_end)
+    setDays(organization.scheduling_days)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    organization.scheduling_timezone,
+    organization.scheduling_working_hours_start,
+    organization.scheduling_working_hours_end,
+    schedulingDaysKey,
+  ])
 
   async function handleSaveName() {
     if (!name.trim() || name === organization.name) return
@@ -121,6 +164,33 @@ export function OrganizationSettingsPage() {
       setError(err instanceof ApiError ? err.message : 'Failed to save organization name')
     } finally {
       setSaving(false)
+    }
+  }
+
+  function toggleDay(day: number) {
+    setDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)))
+  }
+
+  async function handleSaveScheduling() {
+    if (days.length === 0) {
+      setSchedulingError('Select at least one day.')
+      return
+    }
+    setSavingScheduling(true)
+    setSchedulingError(null)
+    try {
+      await api.updateOrganization({
+        scheduling_timezone: timezone.trim(),
+        scheduling_working_hours_start: startHour,
+        scheduling_working_hours_end: endHour,
+        scheduling_days: days,
+      })
+      await reloadOrganization()
+      schedulingSaved.flash()
+    } catch (err) {
+      setSchedulingError(err instanceof ApiError ? err.message : 'Failed to save scheduling settings')
+    } finally {
+      setSavingScheduling(false)
     }
   }
 
@@ -163,6 +233,65 @@ export function OrganizationSettingsPage() {
             remove={api.deleteOrganizationBanner}
             onChange={reloadOrganization}
           />
+        </div>
+      </div>
+
+      <div className="card section">
+        <div className="section-header">
+          <h2>Scheduling</h2>
+        </div>
+        <p className="subtle">
+          The hours and days candidates can book an interview through the public apply flow.
+        </p>
+
+        {schedulingError && <div className="error-banner">{schedulingError}</div>}
+
+        <div className="form-row">
+          <label>
+            Earliest time
+            <select value={startHour} onChange={(e) => setStartHour(Number(e.target.value))}>
+              {HOUR_OPTIONS.map((hour) => (
+                <option key={hour} value={hour}>
+                  {formatHourLabel(hour)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Latest time
+            <select value={endHour} onChange={(e) => setEndHour(Number(e.target.value))}>
+              {HOUR_OPTIONS.map((hour) => (
+                <option key={hour} value={hour}>
+                  {formatHourLabel(hour)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Timezone
+            <input
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              placeholder="e.g. America/New_York"
+            />
+          </label>
+        </div>
+
+        <label>Available days</label>
+        <div className="checkbox-row">
+          {DAY_OPTIONS.map((day) => (
+            <label key={day.value} className="checkbox-label">
+              <input type="checkbox" checked={days.includes(day.value)} onChange={() => toggleDay(day.value)} />
+              {day.label}
+            </label>
+          ))}
+        </div>
+
+        <div className="save-control">
+          <button type="button" onClick={handleSaveScheduling} disabled={savingScheduling}>
+            {savingScheduling ? 'Saving…' : 'Save'}
+          </button>
+          {schedulingSaved.saved && <span className="save-confirmation">✓ Saved</span>}
         </div>
       </div>
     </div>

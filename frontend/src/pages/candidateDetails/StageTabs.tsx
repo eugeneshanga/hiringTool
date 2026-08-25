@@ -61,11 +61,16 @@ interface StageTabsProps {
   candidate: CandidateDetail
   onCandidateChange: (candidate: CandidateDetail) => void
   onError: (message: string) => void
+  // Reports which stage's tab is active up to CandidateDetailsPage, which
+  // uses it to show/hide the pre-screen and onboarding sections below this
+  // component - those are only relevant for interview-type stages (see
+  // needsPreScreen/needsOnboarding), not orientation.
+  onActiveStageChange: (stage: CandidateStage | null) => void
 }
 
 /** The per-meeting-stage tab strip: schedule/status, Cancel/Reschedule/Send
  * message, and the notes + scorecard panel for whichever stage is active. */
-export function StageTabs({ candidate, onCandidateChange, onError }: StageTabsProps) {
+export function StageTabs({ candidate, onCandidateChange, onError, onActiveStageChange }: StageTabsProps) {
   const [activeTemplateId, setActiveTemplateId] = useState<number | null>(
     candidate.stages[0]?.meeting_stage_template_id ?? null,
   )
@@ -95,6 +100,11 @@ export function StageTabs({ candidate, onCandidateChange, onError }: StageTabsPr
   // interview slot - the interview-specific scorecard/notes panel and
   // cancel flow don't apply to it, so it only gets Schedule + Send message.
   const isOrientation = activeStage?.meeting_type === 'In-person orientation'
+
+  useEffect(() => {
+    onActiveStageChange(activeStage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStage?.meeting_stage_template_id, activeStage?.meeting_type])
 
   useEffect(() => {
     if (!activeStage) return

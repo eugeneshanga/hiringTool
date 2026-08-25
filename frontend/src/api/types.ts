@@ -52,6 +52,14 @@ export interface Organization {
   name: string
   has_logo: boolean
   has_banner: boolean
+  // Bounds the public apply flow's candidate-visible scheduling
+  // availability (see google_calendar.get_free_slots) - editable from the
+  // Organization Settings page. scheduling_days is a list of
+  // date.weekday() ints, Monday=0 .. Sunday=6.
+  scheduling_timezone: string
+  scheduling_working_hours_start: number
+  scheduling_working_hours_end: number
+  scheduling_days: number[]
 }
 
 export type BlocklistEntryType = 'email' | 'domain'
@@ -195,6 +203,11 @@ export interface CandidateScreeningAnswer {
   question_id: number
   question_text: string
   answer_options: string[]
+  // Subset of answer_options that qualifies the candidate - empty for a
+  // free-text question (answer_options also empty), which has no defined
+  // "wrong" answer. See ScreeningAnswers.tsx for how this decides the
+  // check/✕ shown next to each answer.
+  qualified_answers: string[]
   answer_text: string | null
 }
 
@@ -284,6 +297,11 @@ export interface PublicJob {
   // models.Organization), not hardcoded, so it's never wrong/stale if the
   // org's name ever changes or this is reused by a different deployment.
   organization_name: string
+  // Answered as part of applying (see PublicApplyPage) - qualification is
+  // evaluated automatically right after submission (see routes/apply.py's
+  // apply()), so unlike the recruiter-facing Pre-screen tab, a candidate
+  // never sees the outcome directly, only which email (if any) they get.
+  screening_questions: PublicScreeningQuestion[]
 }
 
 export interface PublicScreeningQuestion {
@@ -301,7 +319,6 @@ export interface PublicApplicationOpen {
   already_scheduled: false
   job_title: string
   organization_name: string
-  screening_questions: PublicScreeningQuestion[]
   stage_name: string | null
   meeting_type: StageMeetingType | null
   duration_minutes: number | null

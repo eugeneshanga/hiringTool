@@ -37,9 +37,7 @@ Run the API:
 python3 app.py
 ```
 
-Serves on **http://127.0.0.1:5050**. (Not 5000 — macOS's AirPlay Receiver
-squats on that port by default and will silently swallow requests before
-Flask ever sees them.) `python3 app.py` also runs any pending migrations on
+Serves on **http://127.0.0.1:5050**. `python3 app.py` also runs any pending migrations on
 startup, so a fresh clone just needs `pip install` + this to be up to date.
 
 Other user-management commands:

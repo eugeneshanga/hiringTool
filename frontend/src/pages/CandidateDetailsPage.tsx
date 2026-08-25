@@ -3,11 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useSavedFlash } from '../hooks/useSavedFlash'
 import { copyText } from '../lib/clipboard'
+import { needsOnboarding, needsPreScreen } from '../lib/meetingStageTypes'
 import { CandidateInfoCard } from './candidateDetails/CandidateInfoCard'
 import { StageTabs } from './candidateDetails/StageTabs'
 import { DocumentChecklist } from './candidateDetails/DocumentChecklist'
 import { ScreeningAnswers } from './candidateDetails/ScreeningAnswers'
-import type { CandidateDetail } from '../api/types'
+import type { CandidateDetail, CandidateStage } from '../api/types'
 
 /** Fetches the candidate and hosts the shared error banner + Close/Share
  * toolbar; each section below owns its own local state and fetches, and
@@ -19,6 +20,7 @@ export function CandidateDetailsPage() {
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeStage, setActiveStage] = useState<CandidateStage | null>(null)
   const shareFlash = useSavedFlash(1500)
 
   useEffect(() => {
@@ -84,9 +86,22 @@ export function CandidateDetailsPage() {
           drafts, etc.) from whoever was open before. */}
       <div key={candidate.id}>
         <CandidateInfoCard candidate={candidate} onCandidateChange={setCandidate} onError={setError} />
-        <StageTabs candidate={candidate} onCandidateChange={setCandidate} onError={setError} />
-        <DocumentChecklist candidateId={candidate.id} candidateName={candidate.name} onError={setError} />
-        <ScreeningAnswers candidate={candidate} onCandidateChange={setCandidate} onError={setError} />
+        <StageTabs
+          candidate={candidate}
+          onCandidateChange={setCandidate}
+          onError={setError}
+          onActiveStageChange={setActiveStage}
+        />
+        {/* Pre-screen/onboarding only make sense while looking at an
+            interview-type stage - hidden entirely for orientation (matches
+            the same rule the stage editor's own tabs use - see
+            meetingStageTypes.ts). */}
+        {needsOnboarding(activeStage?.meeting_type ?? '') && (
+          <DocumentChecklist candidateId={candidate.id} candidateName={candidate.name} onError={setError} />
+        )}
+        {needsPreScreen(activeStage?.meeting_type ?? '') && (
+          <ScreeningAnswers candidate={candidate} onCandidateChange={setCandidate} onError={setError} />
+        )}
 
         <button className="link-button danger" onClick={handleDelete}>
           Delete candidate

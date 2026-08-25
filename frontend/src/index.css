@@ -1109,6 +1109,7 @@ button:disabled {
 .checkbox-row {
   display: flex;
   gap: 1.25rem;
+  flex-wrap: wrap;
 }
 
 .checkbox-label {
@@ -1621,8 +1622,12 @@ button:disabled {
   line-height: 1.6;
 }
 
-.screening-check.answered {
+.screening-check-qualifying {
   color: #1a8a4a;
+}
+
+.screening-check-disqualifying {
+  color: var(--danger);
 }
 
 .screening-row-body {

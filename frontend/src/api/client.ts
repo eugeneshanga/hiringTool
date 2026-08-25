@@ -289,8 +289,13 @@ export const api = {
   // admin-only (enforced server-side; the frontend also hides the nav entry
   // for non-admins - see AdminRoute.tsx). ---
   getOrganization: () => request<Organization>('/api/organization'),
-  updateOrganization: (data: { name?: string }) =>
-    request<Organization>('/api/organization', { method: 'PATCH', body: JSON.stringify(data) }),
+  updateOrganization: (data: {
+    name?: string
+    scheduling_timezone?: string
+    scheduling_working_hours_start?: number
+    scheduling_working_hours_end?: number
+    scheduling_days?: number[]
+  }) => request<Organization>('/api/organization', { method: 'PATCH', body: JSON.stringify(data) }),
   uploadOrganizationLogo: (file: File) => {
     const form = new FormData()
     form.append('file', file)

@@ -71,12 +71,14 @@ function BookingSummary({
 }
 
 /** Step 2/3 of the public apply flow (no login) — the link emailed after
- * POST /api/apply. Loads that job's screening questions + open interview
- * slots (GET /api/apply/<token>) and submits both together atomically
- * (POST /api/apply/<token>/submit) — see routes/apply.py. The date/time
- * picker is the same month-grid-plus-day-panel calendar as the recruiter
- * side's ScheduleInterviewModal (see lib/calendarGrid.ts), just driven by
- * live Google Calendar availability instead of existing sessions. */
+ * POST /api/apply, sent only to a candidate whose screening answers already
+ * qualified them (that happens at apply time now - see
+ * routes/apply.py's apply()). This page is scheduling only: it loads that
+ * job's open interview slots (GET /api/apply/<token>) and books one
+ * (POST /api/apply/<token>/submit). The date/time picker is the same
+ * month-grid-plus-day-panel calendar as the recruiter side's
+ * ScheduleInterviewModal (see lib/calendarGrid.ts), just driven by live
+ * Google Calendar availability instead of existing sessions. */
 export function ScheduleApplicationPage() {
   const { token } = useParams<{ token: string }>()
 
@@ -84,7 +86,6 @@ export function ScheduleApplicationPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [answers, setAnswers] = useState<Record<number, string>>({})
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null)
@@ -143,10 +144,6 @@ export function ScheduleApplicationPage() {
     setSubmitting(true)
     try {
       const result = await publicApplyApi.submitApplication(token, {
-        answers: Object.entries(answers).map(([questionId, answerText]) => ({
-          question_id: Number(questionId),
-          answer_text: answerText,
-        })),
         slot_start: selectedSlot.start,
         slot_end: selectedSlot.end,
       })
@@ -234,40 +231,7 @@ export function ScheduleApplicationPage() {
       </div>
 
       <form className="form" onSubmit={handleSubmit}>
-        {openData.screening_questions.length > 0 && (
-          <>
-            <h2 className="apply-section-heading apply-section-heading-first">A few quick questions</h2>
-            <div className="screening-list">
-              {openData.screening_questions.map((q) => (
-                <label key={q.id}>
-                  {q.question_text}
-                  {q.answer_options.length > 0 ? (
-                    <select
-                      value={answers[q.id] ?? ''}
-                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                    >
-                      <option value="">Select an answer…</option>
-                      {q.answer_options.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      value={answers[q.id] ?? ''}
-                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                    />
-                  )}
-                </label>
-              ))}
-            </div>
-          </>
-        )}
-
-        <h2 className={`apply-section-heading${openData.screening_questions.length === 0 ? ' apply-section-heading-first' : ''}`}>
-          Select a date &amp; time
-        </h2>
+        <h2 className="apply-section-heading apply-section-heading-first">Select a date &amp; time</h2>
 
         {noSlotsAvailable ? (
           <p className="subtle">
