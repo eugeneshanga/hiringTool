@@ -1,40 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
+import { buildCalendarCells, dateKey, isSameDay, startOfMonth } from '../lib/calendarGrid'
 import { toInterviewMeetingType } from '../lib/meetingStageTypes'
 import type { Candidate, Interview, Job, MeetingStageTemplate } from '../api/types'
 
 type CandidateMode = 'search' | 'manual'
 type SlotMode = 'available' | 'custom'
-
-function pad(n: number) {
-  return String(n).padStart(2, '0')
-}
-
-function dateKey(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1)
-}
-
-/** 42 cells (6 full weeks) covering the given month, starting on the Sunday
- * on or before the 1st — enough to render a standard month grid. */
-function buildCalendarCells(month: Date) {
-  const first = startOfMonth(month)
-  const start = new Date(first)
-  start.setDate(start.getDate() - first.getDay())
-  return Array.from({ length: 42 }, (_, i) => {
-    const date = new Date(start)
-    date.setDate(start.getDate() + i)
-    return date
-  })
-}
-
-function isSameDay(a: Date, b: Date) {
-  return dateKey(a) === dateKey(b)
-}
 
 interface ScheduleInterviewModalProps {
   job: Job

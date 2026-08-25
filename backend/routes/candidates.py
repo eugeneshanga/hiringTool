@@ -85,7 +85,11 @@ def create_candidate():
         scheduled=data.get('scheduled', False),
         city=data.get('city'),
         state=data.get('state'),
+        address_line1=data.get('address_line1'),
+        postal_code=data.get('postal_code'),
         source=data.get('source'),
+        work_authorized=data.get('work_authorized'),
+        requires_visa_sponsorship=data.get('requires_visa_sponsorship'),
     )
     db.session.add(candidate)
     db.session.commit()
@@ -116,7 +120,8 @@ def update_candidate(candidate_id):
 
     for field in (
         'name', 'email', 'phone', 'job_id', 'stage', 'status', 'interviewer', 'scheduled',
-        'city', 'state', 'source',
+        'city', 'state', 'address_line1', 'postal_code', 'source',
+        'work_authorized', 'requires_visa_sponsorship',
     ):
         if field in data:
             setattr(candidate, field, data[field])

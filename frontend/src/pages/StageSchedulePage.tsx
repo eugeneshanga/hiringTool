@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
 import { needsCapacity, needsDuration, toInterviewMeetingType } from '../lib/meetingStageTypes'
-import type { Candidate, Interview } from '../api/types'
+import type { Candidate, Interview, Interviewer } from '../api/types'
 import { useStageEditorContext } from './StageEditorLayout'
 
 function formatDate(iso: string) {
@@ -34,7 +34,19 @@ export function StageSchedulePage() {
   const [durationInput, setDurationInput] = useState(template.duration_minutes?.toString() ?? '')
   const [windowInput, setWindowInput] = useState(String(template.scheduling_window_days))
   const [capacityInput, setCapacityInput] = useState(template.default_capacity?.toString() ?? '')
+  const [interviewerInput, setInterviewerInput] = useState(template.interviewer_user_id?.toString() ?? '')
+  const [interviewers, setInterviewers] = useState<Interviewer[]>([])
   const [savingSettings, setSavingSettings] = useState(false)
+
+  // Who can be assigned to check their calendar for this stage's public
+  // apply-flow availability (see google_calendar.py) - any active user, not
+  // just admins (GET /api/organization/interviewers is deliberately not
+  // admin-gated, unlike the full user list).
+  useEffect(() => {
+    api.listInterviewers().then(setInterviewers).catch(() => {
+      // Non-critical - the picker just shows no options if this fails.
+    })
+  }, [])
 
   const [sessions, setSessions] = useState<Interview[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -85,10 +97,33 @@ export function StageSchedulePage() {
         duration_minutes: needsDuration(template.meeting_type) && durationInput ? Number(durationInput) : null,
         scheduling_window_days: Number(windowInput) || 0,
         default_capacity: needsCapacity(template.meeting_type) && capacityInput ? Number(capacityInput) : null,
+        interviewer_user_id: needsDuration(template.meeting_type) && interviewerInput ? Number(interviewerInput) : null,
       })
       onTemplateChange(updated)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to save settings')
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  // Separate from handleSaveSettings (which reads the other fields' *state*,
+  // updated on their own onChange/onBlur cycle) because a <select>'s
+  // onChange fires before the setInterviewerInput state update has been
+  // applied - routing through handleSaveSettings here would PATCH with the
+  // stale previous value. Sends interviewer_user_id alone; the PATCH
+  // endpoint only touches fields present in the body.
+  async function handleInterviewerChange(value: string) {
+    setInterviewerInput(value)
+    setSavingSettings(true)
+    setError(null)
+    try {
+      const updated = await api.updateMeetingStage(job.id, template.id, {
+        interviewer_user_id: value ? Number(value) : null,
+      })
+      onTemplateChange(updated)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save interviewer')
     } finally {
       setSavingSettings(false)
     }
@@ -200,6 +235,19 @@ export function StageSchedulePage() {
               onChange={(e) => setDurationInput(e.target.value)}
               onBlur={handleSaveSettings}
             />
+          </label>
+        )}
+        {needsDuration(template.meeting_type) && (
+          <label>
+            Interviewer (public apply calendar)
+            <select value={interviewerInput} onChange={(e) => handleInterviewerChange(e.target.value)}>
+              <option value="">Not assigned</option>
+              {interviewers.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </select>
           </label>
         )}
         <label>

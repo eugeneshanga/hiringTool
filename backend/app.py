@@ -1,9 +1,12 @@
+import logging
+
 import click
 from flask import Flask, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate, upgrade
 from config import Config
+from extensions import limiter
 from models import db, User
 from routes.candidates import candidates_bp
 from routes.jobs import jobs_bp
@@ -15,6 +18,8 @@ from routes.meeting_stages import meeting_stages_bp
 from routes.screening_questions import screening_questions_bp
 from routes.onboarding_items import onboarding_items_bp
 from routes.organization import organization_bp
+from routes.apply import apply_bp
+from routes.status import status_bp
 
 migrate = Migrate()
 
@@ -25,10 +30,19 @@ def create_app(config_overrides=None):
     if config_overrides:
         app.config.update(config_overrides)
 
+    # Flask's app.logger comes with a stderr handler already attached, but
+    # its effective level falls back to the interpreter's default (WARNING)
+    # unless something sets it explicitly - which would silently swallow
+    # every .info() call app-wide, including the one thing
+    # email_sender.ConsoleEmailProvider exists to make visible (grabbing an
+    # apply/confirmation link straight from the console in dev).
+    app.logger.setLevel(logging.INFO)
+
     db.init_app(app)
     migrate.init_app(app, db, render_as_batch=True)
     jwt = JWTManager(app)
     CORS(app)
+    limiter.init_app(app)
 
     # Recruiter (User) and candidate (CandidateAccount) accounts are separate
     # identities issued from separate login flows — a token's `account_type`
@@ -59,10 +73,25 @@ def create_app(config_overrides=None):
     app.register_blueprint(screening_questions_bp)
     app.register_blueprint(onboarding_items_bp)
     app.register_blueprint(organization_bp)
+    app.register_blueprint(apply_bp)
+    app.register_blueprint(status_bp)
 
     @app.route('/api/health', methods=['GET'])
     def health_check():
         return {"status": "ok"}, 200
+
+    # Werkzeug enforces MAX_CONTENT_LENGTH (config.py, 15MB - applies to
+    # every upload app-wide: resumes, onboarding documents, org logo/banner)
+    # before any view function runs, raising RequestEntityTooLarge - which
+    # Flask's default handling renders as a bare HTML error page. Every
+    # other error response in this app is JSON with an "error" key (see
+    # ApiError on the frontend), so without this override a too-large
+    # upload would be the one response shape the frontend's error handling
+    # can't parse a message out of.
+    @app.errorhandler(413)
+    def handle_file_too_large(_e):
+        max_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+        return {"error": f"That file is too large - please upload something under {max_mb}MB."}, 413
 
     @app.cli.command('create-user')
     @click.option('--first-name', prompt=True)

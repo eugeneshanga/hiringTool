@@ -152,6 +152,35 @@ def test_update_stage_patches_capacity_and_address(client, auth_headers, job, me
     assert body['location'] is None
 
 
+def test_update_stage_sets_interviewer(client, auth_headers, job, meeting_stage, user):
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'interviewer_user_id': user.id},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['interviewer_user_id'] == user.id
+    assert body['interviewer_name'] == user.name
+
+    # Unassigning (null) must actually clear it.
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'interviewer_user_id': None},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['interviewer_user_id'] is None
+    assert body['interviewer_name'] is None
+
+
+def test_update_stage_rejects_unknown_interviewer(client, auth_headers, job, meeting_stage):
+    resp = client.patch(
+        f'/api/jobs/{job.id}/meeting-stages/{meeting_stage.id}', headers=auth_headers,
+        json={'interviewer_user_id': 999999},
+    )
+    assert resp.status_code == 400
+
+
 def test_available_meeting_stages_include_capacity_and_address(client, auth_headers, job):
     other_job = client.post('/api/jobs', headers=auth_headers, json={'title': 'Other Job'}).get_json()
     client.post(f"/api/jobs/{other_job['id']}/meeting-stages", headers=auth_headers, json={
