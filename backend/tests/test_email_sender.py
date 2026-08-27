@@ -1,7 +1,8 @@
-"""email_sender.py: the console provider, provider selection, the global
-send cap, and the two template functions. Nothing here talks to real mail
-infrastructure - the console provider *is* the thing under test for
-delivery, and template tests swap in a spy provider via monkeypatch.
+"""email_sender.py: the console and Postmark providers, provider selection,
+the global send cap, and the two template functions. Nothing here talks to
+real mail infrastructure - the console provider *is* the thing under test
+for delivery, PostmarkEmailProvider's HTTP call is faked via monkeypatch,
+and template tests swap in a spy provider via monkeypatch.
 """
 from datetime import datetime, timedelta
 
@@ -16,6 +17,22 @@ class _SpyProvider:
 
     def send(self, to_email, subject, text_body):
         self.sent.append((to_email, subject, text_body))
+
+
+class _FakePostmarkResponse:
+    """Stands in for requests.Response - only what PostmarkEmailProvider.send
+    actually touches (raise_for_status/.json)."""
+
+    def __init__(self, status_code=200, error_code=0, message='OK'):
+        self.status_code = status_code
+        self._payload = {'ErrorCode': error_code, 'Message': message}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise email_sender.requests.HTTPError(f'{self.status_code} error')
+
+    def json(self):
+        return self._payload
 
 
 @pytest.fixture(autouse=True)
@@ -47,6 +64,111 @@ def test_get_provider_rejects_unimplemented_provider(app):
         app.config['EMAIL_PROVIDER'] = 'sendgrid'
         with pytest.raises(NotImplementedError):
             email_sender.get_provider()
+
+
+def test_get_provider_returns_postmark_when_configured(app):
+    with app.app_context():
+        app.config['EMAIL_PROVIDER'] = 'postmark'
+        app.config['POSTMARK_SERVER_TOKEN'] = 'test-token'
+        app.config['EMAIL_FROM_ADDRESS'] = 'noreply@example.com'
+        provider = email_sender.get_provider()
+        assert isinstance(provider, email_sender.PostmarkEmailProvider)
+
+
+def test_postmark_provider_requires_server_token():
+    with pytest.raises(RuntimeError):
+        email_sender.PostmarkEmailProvider(server_token=None, from_email='noreply@example.com')
+
+
+def test_postmark_provider_requires_from_email():
+    with pytest.raises(RuntimeError):
+        email_sender.PostmarkEmailProvider(server_token='test-token', from_email=None)
+
+
+# --- Postmark send -----------------------------------------------------------
+
+def test_postmark_provider_sends_successfully(monkeypatch):
+    calls = []
+
+    def fake_post(url, headers, json, timeout):
+        calls.append((url, headers, json, timeout))
+        return _FakePostmarkResponse(status_code=200, error_code=0)
+
+    monkeypatch.setattr(email_sender.requests, 'post', fake_post)
+    provider = email_sender.PostmarkEmailProvider(server_token='test-token', from_email='noreply@example.com')
+
+    provider.send('jane@example.com', 'Subject line', 'Body text')
+
+    assert len(calls) == 1
+    url, headers, payload, timeout = calls[0]
+    assert url == email_sender.POSTMARK_SEND_URL
+    assert headers['X-Postmark-Server-Token'] == 'test-token'
+    assert payload['From'] == 'noreply@example.com'
+    assert payload['To'] == 'jane@example.com'
+    assert payload['Subject'] == 'Subject line'
+    assert payload['TextBody'] == 'Body text'
+    assert payload['MessageStream'] == 'outbound'
+    assert timeout == email_sender.POSTMARK_TIMEOUT_SECONDS
+
+
+def test_postmark_provider_raises_generic_http_error_without_a_parseable_body(monkeypatch):
+    # No usable Postmark JSON body (e.g. a proxy error page on an outage) -
+    # falls back to requests' own error rather than a RuntimeError.
+    monkeypatch.setattr(email_sender.requests, 'post', lambda url, **kw: _FakePostmarkResponse(status_code=500))
+    provider = email_sender.PostmarkEmailProvider(server_token='test-token', from_email='noreply@example.com')
+
+    with pytest.raises(email_sender.requests.HTTPError):
+        provider.send('jane@example.com', 'Subject', 'Body')
+
+
+def test_postmark_provider_surfaces_error_message_on_non_2xx_status(monkeypatch):
+    # Postmark's own rejection reason (e.g. 422 for a trial account sending
+    # outside its allowed recipients) must not get lost behind
+    # raise_for_status()'s generic "422 Client Error" - regression coverage
+    # for exactly that bug.
+    monkeypatch.setattr(
+        email_sender.requests, 'post',
+        lambda url, **kw: _FakePostmarkResponse(
+            status_code=422, error_code=412,
+            message="all recipient addresses must share the same domain as the 'From' address",
+        ),
+    )
+    provider = email_sender.PostmarkEmailProvider(server_token='test-token', from_email='noreply@example.com')
+
+    with pytest.raises(RuntimeError, match='same domain'):
+        provider.send('jane@example.com', 'Subject', 'Body')
+
+
+def test_postmark_provider_raises_on_error_code_with_200_status(monkeypatch):
+    # Postmark returns HTTP 200 with a non-zero ErrorCode for some failures
+    # (e.g. an inactive/bounced recipient) rather than a non-2xx status.
+    monkeypatch.setattr(
+        email_sender.requests, 'post',
+        lambda url, **kw: _FakePostmarkResponse(status_code=200, error_code=406, message='Inactive recipient'),
+    )
+    provider = email_sender.PostmarkEmailProvider(server_token='test-token', from_email='noreply@example.com')
+
+    with pytest.raises(RuntimeError, match='406'):
+        provider.send('jane@example.com', 'Subject', 'Body')
+
+
+def test_postmark_provider_used_via_send_when_configured(app, monkeypatch):
+    # End-to-end through get_provider()/_send() rather than constructing
+    # PostmarkEmailProvider directly, to prove the config wiring actually
+    # takes effect for a real POST /api/apply-triggered send.
+    app.config['EMAIL_PROVIDER'] = 'postmark'
+    app.config['POSTMARK_SERVER_TOKEN'] = 'test-token'
+    app.config['EMAIL_FROM_ADDRESS'] = 'noreply@example.com'
+    calls = []
+    monkeypatch.setattr(
+        email_sender.requests, 'post',
+        lambda url, **kw: (calls.append(kw) or _FakePostmarkResponse()),
+    )
+
+    with app.app_context():
+        assert email_sender._send('jane@example.com', 'Subject', 'Body') is True
+
+    assert len(calls) == 1
 
 
 def test_console_provider_logs_the_email(app, caplog):

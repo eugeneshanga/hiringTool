@@ -27,6 +27,13 @@ def app():
             # so this doesn't currently do anything in tests - set anyway so
             # it stays correct if that ever changes.
             'SCHEDULER_ENABLED': False,
+            # Same isolation as the overrides above, for email: tests must
+            # never depend on (or accidentally fire a real send through)
+            # whatever EMAIL_PROVIDER/POSTMARK_SERVER_TOKEN happen to be set
+            # to in the developer's real database.env (see email_sender.py).
+            # Individual tests override this back to 'postmark' when that's
+            # what they're testing.
+            'EMAIL_PROVIDER': 'console',
         })
         with flask_app.app_context():
             db.create_all()

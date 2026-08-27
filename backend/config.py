@@ -52,8 +52,18 @@ class Config:
     FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:5173')
 
     # Which EmailProvider (see email_sender.py) sends application-related
-    # email. Only 'console' (logs instead of sending) is implemented so far.
+    # email - 'console' (default, logs instead of sending) or 'postmark'.
     EMAIL_PROVIDER = os.environ.get('EMAIL_PROVIDER', 'console')
+
+    # Required when EMAIL_PROVIDER=postmark. Server token from the Postmark
+    # dashboard (Servers -> your server -> API Tokens), and the From address
+    # that server's Sender Signature (or a verified sending domain) was set
+    # up for - Postmark rejects a send whose From isn't verified on that
+    # server. Left unset in Config's fallback, same as the Google Calendar
+    # vars above - PostmarkEmailProvider is what fails loudly if these are
+    # missing while actually needed, not app startup.
+    POSTMARK_SERVER_TOKEN = os.environ.get('POSTMARK_SERVER_TOKEN')
+    EMAIL_FROM_ADDRESS = os.environ.get('EMAIL_FROM_ADDRESS')
 
     # Flask-Limiter's storage backend (see extensions.py). In-memory by
     # default - fine for one dev process or the test suite, but each worker

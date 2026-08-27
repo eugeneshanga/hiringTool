@@ -99,6 +99,15 @@ Serves on **http://localhost:5173**. Reads the API URL from
   rest — generate one with
   `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`;
   rotating it invalidates every stored refresh token).
+- `database.env` also controls outbound email (see `backend/email_sender.py`):
+  `EMAIL_PROVIDER` — `console` (default; logs the email instead of sending,
+  no external account needed) or `postmark`. When set to `postmark`, also set
+  `POSTMARK_SERVER_TOKEN` (Postmark dashboard → your Server → API Tokens) and
+  `EMAIL_FROM_ADDRESS` (must be a verified Sender Signature, or an address on
+  a verified Sender Domain, in that same Postmark server — unverified senders
+  get rejected). A brand-new Postmark account starts in trial mode, which can
+  only deliver to recipients on the same domain as `EMAIL_FROM_ADDRESS` until
+  you request full sending approval from Postmark.
 - `frontend/.env` — `VITE_API_URL`, the backend's address.
 
 Neither file is committed (see `.gitignore`); both have `.example`-style

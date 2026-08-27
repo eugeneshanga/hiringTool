@@ -2,12 +2,14 @@
 
 Two things live here:
 
-1. The actual send mechanism - an EmailProvider interface with, for now,
-   only a console/log implementation, so local dev and the test suite never
-   depend on real mail infrastructure (grab the apply link or confirmation
-   code straight from the console/log output). Swapping in SMTP or a
-   transactional API later means writing one more EmailProvider and pointing
-   get_provider() at it - nothing above this module changes.
+1. The actual send mechanism - an EmailProvider interface. ConsoleEmailProvider
+   is the local dev / test suite default (grab the apply link or confirmation
+   code straight from the console/log output, no real mail infrastructure
+   needed); PostmarkEmailProvider sends for real via Postmark's HTTP API once
+   EMAIL_PROVIDER=postmark and POSTMARK_SERVER_TOKEN/EMAIL_FROM_ADDRESS are
+   set (see config.py). Adding another provider later means writing one more
+   EmailProvider and pointing get_provider() at it - nothing above this
+   module changes.
 2. A blunt, app-wide rolling-hour send cap shared by every email this module
    sends, independent of the per-IP / per-email-per-job limits on
    POST /api/apply itself (see routes/apply.py) - a last line of defense
@@ -24,7 +26,14 @@ from abc import ABC, abstractmethod
 from collections import deque
 from datetime import datetime, timedelta
 
+import requests
 from flask import current_app
+
+POSTMARK_SEND_URL = 'https://api.postmarkapp.com/email'
+# Postmark itself times out slower than this on a bad day; failing fast here
+# means a Postmark outage can't hang the request that triggered the email
+# (see module docstring - a failed send must stay non-fatal to the caller).
+POSTMARK_TIMEOUT_SECONDS = 10
 
 
 class EmailProvider(ABC):
@@ -54,16 +63,84 @@ class ConsoleEmailProvider(EmailProvider):
         )
 
 
+class PostmarkEmailProvider(EmailProvider):
+    """Sends via Postmark's HTTP API (no SDK dependency - this is a single
+    small POST, and `requests` is already a dependency for google_calendar.py).
+    Chosen over relaying through a personal/Workspace Gmail account: Postmark
+    is built for transactional mail specifically, manages IP reputation and
+    SPF/DKIM/DMARC signing for you, and - the actual anti-abuse property this
+    app wants - proactively monitors bounce/complaint rates and suspends an
+    abusing account rather than letting it degrade a shared IP's reputation
+    with the wider internet. The app's own defenses (honeypot, per-IP and
+    per-email-per-job rate limits in routes/apply.py, the hourly cap below)
+    are still the first line; this is the backstop.
+
+    server_token/from_email are read once at construction (not per-send) so
+    a misconfigured deployment fails at the first send attempt with a clear
+    error rather than silently degrading."""
+
+    def __init__(self, server_token, from_email):
+        if not server_token:
+            raise RuntimeError('POSTMARK_SERVER_TOKEN is not set (required when EMAIL_PROVIDER=postmark)')
+        if not from_email:
+            raise RuntimeError('EMAIL_FROM_ADDRESS is not set (required when EMAIL_PROVIDER=postmark)')
+        self._server_token = server_token
+        self._from_email = from_email
+
+    def send(self, to_email, subject, text_body):
+        response = requests.post(
+            POSTMARK_SEND_URL,
+            headers={
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-Postmark-Server-Token': self._server_token,
+            },
+            json={
+                'From': self._from_email,
+                'To': to_email,
+                'Subject': subject,
+                'TextBody': text_body,
+                # Keeps this app's automated mail out of Postmark's "broadcast"
+                # stream accounting/limits, which is priced and rate-limited
+                # separately from transactional - these are all one-to-one,
+                # triggered-by-an-action emails, i.e. transactional.
+                'MessageStream': 'outbound',
+            },
+            timeout=POSTMARK_TIMEOUT_SECONDS,
+        )
+        # Postmark's error body (ErrorCode/Message) is worth surfacing
+        # whether it comes back with a 2xx (e.g. inactive recipient) or a
+        # non-2xx (e.g. 422 for a rejected request, such as sending outside
+        # an unapproved trial account's allowed recipients) - check for it
+        # before raise_for_status() so that message isn't lost in favor of
+        # a bare "422 Client Error" once raise_for_status() tears the body
+        # down. Only fall back to raise_for_status()'s generic error if the
+        # body isn't the JSON shape Postmark normally sends (e.g. a proxy
+        # error page on an outage).
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if payload and payload.get('ErrorCode'):
+            raise RuntimeError(f"Postmark error {payload['ErrorCode']}: {payload.get('Message')}")
+        response.raise_for_status()
+
+
 def get_provider():
     """Which EmailProvider to use - config-driven (EMAIL_PROVIDER) so
     switching to a real provider later is a config change, not a code
-    change, once one is implemented. Only 'console' exists today."""
+    change. 'console' (default) and 'postmark' exist today."""
     provider_name = current_app.config.get('EMAIL_PROVIDER', 'console')
-    if provider_name != 'console':
-        raise NotImplementedError(
-            f"EMAIL_PROVIDER={provider_name!r} has no EmailProvider implementation yet - only 'console' exists."
+    if provider_name == 'console':
+        return ConsoleEmailProvider()
+    if provider_name == 'postmark':
+        return PostmarkEmailProvider(
+            server_token=current_app.config.get('POSTMARK_SERVER_TOKEN'),
+            from_email=current_app.config.get('EMAIL_FROM_ADDRESS'),
         )
-    return ConsoleEmailProvider()
+    raise NotImplementedError(
+        f"EMAIL_PROVIDER={provider_name!r} has no EmailProvider implementation - only 'console' and 'postmark' exist."
+    )
 
 
 # --- global send cap ---------------------------------------------------------

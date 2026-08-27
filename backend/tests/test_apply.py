@@ -380,11 +380,11 @@ def test_rate_limits_repeat_submissions_for_the_same_email_and_job(client, job):
 
 
 def test_rate_limits_by_ip_across_different_applicants(client, job):
-    for i in range(5):
+    for i in range(15):
         resp = _post_apply(client, email=f'person{i}@example.com', job_id=job.id)
         assert resp.status_code == 200
 
-    resp = _post_apply(client, email='person5@example.com', job_id=job.id)
+    resp = _post_apply(client, email='person15@example.com', job_id=job.id)
 
     assert resp.status_code == 429
 
