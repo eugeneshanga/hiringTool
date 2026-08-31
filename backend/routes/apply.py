@@ -49,7 +49,7 @@ import requests
 from flask import Blueprint, current_app, jsonify, request
 
 from dateutils import parse_datetime
-from email_sender import send_confirmation_email, send_schedule_interview_email
+from email_sender import is_plausible_email, send_confirmation_email, send_schedule_interview_email
 from extensions import limiter
 from file_storage import save_candidate_file
 from google_calendar import (
@@ -234,7 +234,7 @@ def apply():
 
     if not first_name or not last_name or not email or not job_id:
         return jsonify({"error": "first name, last name, email, and job_id are required"}), 400
-    if '@' not in email or not email.split('@')[-1].strip():
+    if not is_plausible_email(email):
         return jsonify({"error": "a valid email is required"}), 400
     if not resume or not resume.filename:
         return jsonify({"error": "a resume is required"}), 400

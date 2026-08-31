@@ -52,7 +52,8 @@ class Config:
     FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:5173')
 
     # Which EmailProvider (see email_sender.py) sends application-related
-    # email - 'console' (default, logs instead of sending) or 'postmark'.
+    # email - 'console' (default, logs instead of sending), 'postmark', or
+    # 'resend'.
     EMAIL_PROVIDER = os.environ.get('EMAIL_PROVIDER', 'console')
 
     # Required when EMAIL_PROVIDER=postmark. Server token from the Postmark
@@ -63,6 +64,13 @@ class Config:
     # vars above - PostmarkEmailProvider is what fails loudly if these are
     # missing while actually needed, not app startup.
     POSTMARK_SERVER_TOKEN = os.environ.get('POSTMARK_SERVER_TOKEN')
+    # Required when EMAIL_PROVIDER=resend. API key from the Resend
+    # dashboard - like POSTMARK_SERVER_TOKEN, left unset in Config's
+    # fallback; ResendEmailProvider is what fails loudly if it's missing
+    # while actually needed, not app startup.
+    RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
+    # From address for whichever of the two above is active - shared since
+    # only one provider is ever selected at a time.
     EMAIL_FROM_ADDRESS = os.environ.get('EMAIL_FROM_ADDRESS')
 
     # Flask-Limiter's storage backend (see extensions.py). In-memory by

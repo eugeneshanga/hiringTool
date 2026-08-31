@@ -107,6 +107,20 @@ def test_rejects_malformed_email(client, job):
     assert resp.status_code == 400
 
 
+def test_rejects_email_header_injection_attempt(app, client, job):
+    # A to_email of "victim@x.com\r\nBcc: attacker@evil.com" still contains
+    # '@', and an attacker-controlled domain can have real MX records - the
+    # old '@' in email + MX-record check didn't catch this at all. Rejected
+    # here (see is_plausible_email) so a malicious address never becomes a
+    # Candidate row in the first place, regardless of which EmailProvider
+    # is configured downstream.
+    resp = _post_apply(client, email='victim@x.com\r\nBcc: attacker@evil.com', job_id=job.id)
+
+    assert resp.status_code == 400
+    with app.app_context():
+        assert Candidate.query.filter_by(job_id=job.id).first() is None
+
+
 def test_requires_a_resume(client, job):
     resp = _post_apply(client, job_id=job.id, resume=None)
     assert resp.status_code == 400
