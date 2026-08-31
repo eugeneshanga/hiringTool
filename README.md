@@ -101,13 +101,16 @@ Serves on **http://localhost:5173**. Reads the API URL from
   rotating it invalidates every stored refresh token).
 - `database.env` also controls outbound email (see `backend/email_sender.py`):
   `EMAIL_PROVIDER` — `console` (default; logs the email instead of sending,
-  no external account needed) or `postmark`. When set to `postmark`, also set
-  `POSTMARK_SERVER_TOKEN` (Postmark dashboard → your Server → API Tokens) and
-  `EMAIL_FROM_ADDRESS` (must be a verified Sender Signature, or an address on
-  a verified Sender Domain, in that same Postmark server — unverified senders
-  get rejected). A brand-new Postmark account starts in trial mode, which can
-  only deliver to recipients on the same domain as `EMAIL_FROM_ADDRESS` until
-  you request full sending approval from Postmark.
+  no external account needed), `postmark`, or `resend`. Both real providers
+  share `EMAIL_FROM_ADDRESS` (must be a verified sender in that provider's
+  account — unverified senders get rejected) plus their own API key:
+  `POSTMARK_SERVER_TOKEN` (Postmark dashboard → your Server → API Tokens) or
+  `RESEND_API_KEY` (Resend dashboard). A brand-new Postmark account starts in
+  trial mode, which can only deliver to recipients on the same domain as
+  `EMAIL_FROM_ADDRESS` until you request full sending approval from Postmark.
+  Every `to_email` this module sends to — regardless of provider — is
+  validated by `is_plausible_email()` first, closing off header injection
+  via a crafted address like `victim@x.com\r\nBcc: attacker@evil.com`.
 - `frontend/.env` — `VITE_API_URL`, the backend's address.
 
 Neither file is committed (see `.gitignore`); both have `.example`-style
