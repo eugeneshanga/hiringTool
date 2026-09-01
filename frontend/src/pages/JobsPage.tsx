@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Job, JobStatus } from '../api/types'
 
 const STATUSES: JobStatus[] = ['Published', 'Draft', 'Closed']
@@ -10,6 +11,8 @@ function formatDate(iso: string) {
 }
 
 export function JobsPage() {
+  usePageTitle('Jobs - HiringTool')
+
   const navigate = useNavigate()
   const [jobs, setJobs] = useState<Job[]>([])
   const [statusFilter, setStatusFilter] = useState('')

@@ -2,9 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Cropped from frontend/main-logo.png (the org's real logo, minus its
+         "THE CARE YOU DESERVE" wordmark, which isn't legible at favicon
+         size) - see that file for the original. ?v=3 is a deliberate
+         cache-buster - browsers cache a favicon by its exact URL and
+         largely ignore normal HTTP cache headers for it, so swapping a
+         file's contents alone isn't enough to make an already-open tab or
+         browser profile pick up the change. Bump this number on any
+         future favicon change. -->
+    <link rel="icon" type="image/png" href="/favicon.png?v=3" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <!-- Static fallback only, shown before React mounts - every real page
+         sets its own via src/hooks/usePageTitle.ts once it renders. This
+         one file's title/favicon serve both audiences (public careers
+         visitors and internal recruiters), so it stays deliberately
+         neutral rather than picking one brand. -->
+    <title>HiringTool</title>
   </head>
   <body>
     <div id="root"></div>

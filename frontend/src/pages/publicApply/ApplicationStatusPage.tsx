@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { publicApplyApi, publicErrorMessage } from '../../api/publicApplyClient'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import type { ApplicationStatus, CandidateDocumentChecklistItem } from '../../api/types'
 
 function formatDateTime(iso: string) {
@@ -20,56 +21,56 @@ const RESEND_CODE_MESSAGE =
   "If that email matches an application with a scheduled interview, we've sent the confirmation code to it."
 
 /** Public, read-only lookup (GET /api/status) — reached via the link in the
- * confirmation email (?code=...), or by hand with a confirmation code or
- * phone number for anyone who didn't keep that email. See routes/status.py
- * for why a phone lookup only ever matches a booking made through this same
- * flow, never an arbitrary recruiter-created interview.
+ * confirmation email (?code=...), or by hand with a confirmation code for
+ * anyone who didn't keep that email. Code-only, deliberately - see
+ * routes/status.py's module docstring for why this doesn't also accept a
+ * phone number or email as a second direct-lookup identifier (both are too
+ * low-entropy to safely return a match directly the way a code can).
  *
  * Also the only place a candidate ever interacts with the app after
  * applying — there's no candidate login (see models.py's Candidate
  * docstring for the removed CandidateAccount). Once a lookup succeeds, the
- * same code/phone that found it also gates uploading onboarding documents
+ * same code that found it also gates uploading onboarding documents
  * (POST /api/status/documents) — see handleUpload below. A candidate who
- * lost their code entirely uses the "Forgot your code?" form instead (see
- * handleResendCode) - a different recovery path from either of those, since
- * it doesn't require already having the code or phone on hand. */
+ * doesn't have their code at all uses the email form instead (see
+ * handleResendCode) - safe specifically because it never returns a match
+ * directly, only ever triggers an email. */
 export function ApplicationStatusPage() {
+  usePageTitle('Application Status')
+
   const [searchParams] = useSearchParams()
   const initialCode = searchParams.get('code') ?? ''
 
   const [code, setCode] = useState(initialCode)
-  const [phone, setPhone] = useState('')
   const [result, setResult] = useState<ApplicationStatus | null>(null)
-  // Whichever of code/phone the *current* result was actually looked up
-  // with — reused to authenticate each document upload, since re-sending
-  // both fields regardless of which one the visitor filled in would send a
-  // stale/empty value for the other.
-  const [lookupParams, setLookupParams] = useState<{ code?: string; phone?: string } | null>(null)
+  // The code the *current* result was actually looked up with — reused to
+  // authenticate each document upload.
+  const [lookupCode, setLookupCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [uploadingItemId, setUploadingItemId] = useState<number | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  const [showForgotForm, setShowForgotForm] = useState(false)
-  const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotSubmitting, setForgotSubmitting] = useState(false)
+  const [showEmailForm, setShowEmailForm] = useState(false)
+  const [emailForCode, setEmailForCode] = useState('')
+  const [resendSubmitting, setResendSubmitting] = useState(false)
   // Distinct from RESEND_CODE_MESSAGE: this is only ever a real request
   // failure (network error, rate limit) - never anything derived from
   // whether resendCode found a match, since that's never surfaced at all.
-  const [forgotRequestError, setForgotRequestError] = useState<string | null>(null)
-  const [forgotSubmitted, setForgotSubmitted] = useState(false)
+  const [resendRequestError, setResendRequestError] = useState<string | null>(null)
+  const [resendSubmitted, setResendSubmitted] = useState(false)
 
-  async function runLookup(params: { code?: string; phone?: string }) {
+  async function runLookup(lookupCode: string) {
     setLoading(true)
     setError(null)
     setUploadError(null)
     try {
-      const data = await publicApplyApi.getStatus(params)
+      const data = await publicApplyApi.getStatus(lookupCode)
       setResult(data)
-      setLookupParams(params)
+      setLookupCode(lookupCode)
     } catch (err) {
       setResult(null)
-      setLookupParams(null)
+      setLookupCode(null)
       setError(publicErrorMessage(err, 'No matching application found.'))
     } finally {
       setLoading(false)
@@ -77,29 +78,28 @@ export function ApplicationStatusPage() {
   }
 
   useEffect(() => {
-    if (initialCode) runLookup({ code: initialCode })
+    if (initialCode) runLookup(initialCode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmedCode = code.trim()
-    const trimmedPhone = phone.trim()
-    if (!trimmedCode && !trimmedPhone) {
-      setError('Enter a confirmation code or phone number.')
+    if (!trimmedCode) {
+      setError('Enter your confirmation code.')
       return
     }
-    runLookup(trimmedCode ? { code: trimmedCode } : { phone: trimmedPhone })
+    runLookup(trimmedCode)
   }
 
   async function handleUpload(itemId: number, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
-    if (!file || !lookupParams) return
+    if (!file || !lookupCode) return
     setUploadingItemId(itemId)
     setUploadError(null)
     try {
-      const submission = await publicApplyApi.uploadStatusDocument(lookupParams, itemId, file)
+      const submission = await publicApplyApi.uploadStatusDocument(lookupCode, itemId, file)
       // Merge the fresh submission into the existing result rather than
       // re-running the whole lookup — same UX reasoning as
       // DocumentChecklist.tsx's loadDocs(), just without a second request.
@@ -122,21 +122,21 @@ export function ApplicationStatusPage() {
 
   async function handleResendCode(e: FormEvent) {
     e.preventDefault()
-    const trimmedEmail = forgotEmail.trim()
+    const trimmedEmail = emailForCode.trim()
     if (!trimmedEmail) return
-    setForgotSubmitting(true)
-    setForgotRequestError(null)
+    setResendSubmitting(true)
+    setResendRequestError(null)
     try {
       await publicApplyApi.resendCode(trimmedEmail)
       // Deliberately ignore whatever the response actually contains - see
       // RESEND_CODE_MESSAGE. Shown regardless of whether a match existed.
-      setForgotSubmitted(true)
+      setResendSubmitted(true)
     } catch (err) {
       // A real failure (network error, the 5/hour rate limit) - not a
       // "no match" signal, since a miss returns this same 200 as a hit.
-      setForgotRequestError(publicErrorMessage(err))
+      setResendRequestError(publicErrorMessage(err))
     } finally {
-      setForgotSubmitting(false)
+      setResendSubmitting(false)
     }
   }
 
@@ -171,22 +171,17 @@ export function ApplicationStatusPage() {
             Confirmation code
             <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. 7X4KMPQ2R" />
           </label>
-          <p className="subtle" style={{ textAlign: 'center' }}>or</p>
-          <label>
-            Phone number
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </label>
           <button type="submit" disabled={loading}>
             {loading ? 'Looking up…' : 'Look up'}
           </button>
         </form>
 
         <div className="forgot-code">
-          {!showForgotForm ? (
-            <button type="button" className="link-button" onClick={() => setShowForgotForm(true)}>
-              Forgot your code?
+          {!showEmailForm ? (
+            <button type="button" className="link-button" onClick={() => setShowEmailForm(true)}>
+              Don't have your code?
             </button>
-          ) : forgotSubmitted ? (
+          ) : resendSubmitted ? (
             <p className="subtle">{RESEND_CODE_MESSAGE}</p>
           ) : (
             <form className="form" onSubmit={handleResendCode}>
@@ -194,15 +189,15 @@ export function ApplicationStatusPage() {
                 Email you applied with
                 <input
                   type="email"
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
+                  value={emailForCode}
+                  onChange={(e) => setEmailForCode(e.target.value)}
                   required
                   autoFocus
                 />
               </label>
-              {forgotRequestError && <div className="error-banner">{forgotRequestError}</div>}
-              <button type="submit" disabled={forgotSubmitting}>
-                {forgotSubmitting ? 'Sending…' : 'Send my code'}
+              {resendRequestError && <div className="error-banner">{resendRequestError}</div>}
+              <button type="submit" disabled={resendSubmitting}>
+                {resendSubmitting ? 'Sending…' : 'Send my code'}
               </button>
             </form>
           )}

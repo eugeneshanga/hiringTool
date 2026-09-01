@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 export function LoginPage() {
+  usePageTitle('Sign In - HiringTool')
+
   const { user, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -59,9 +62,6 @@ export function LoginPage() {
         <button type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
-        <p className="subtle">
-          Don't have an account? <Link to="/register">Register</Link>
-        </p>
       </form>
     </div>
   )

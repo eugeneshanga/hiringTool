@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { publicApplyApi, publicErrorMessage } from '../../api/publicApplyClient'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import type { PublicJob } from '../../api/types'
 
 type YesNo = 'yes' | 'no' | ''
@@ -42,6 +43,8 @@ export function PublicApplyPage() {
   const [jobError, setJobError] = useState<string | null>(null)
   const [loadingJob, setLoadingJob] = useState(true)
   const [tab, setTab] = useState<Tab>('overview')
+
+  usePageTitle(job ? `Apply - ${job.title}` : 'Apply')
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')

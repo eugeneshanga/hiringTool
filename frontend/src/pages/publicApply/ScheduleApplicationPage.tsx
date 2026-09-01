@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { publicApplyApi, publicErrorMessage } from '../../api/publicApplyClient'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { buildCalendarCells, dateKey, isSameDay, startOfMonth } from '../../lib/calendarGrid'
 import type { BookingConfirmation, PublicApplication, PublicSlot } from '../../api/types'
 
@@ -85,6 +86,8 @@ export function ScheduleApplicationPage() {
   const [data, setData] = useState<PublicApplication | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  usePageTitle(data ? `Schedule - ${data.job_title}` : 'Schedule Interview')
 
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)

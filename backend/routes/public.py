@@ -54,7 +54,13 @@ def list_public_jobs():
     Job.to_dict(), which carries recruiter-only fields like
     candidate_count). Draft/Closed jobs are never included, same as
     they're not reachable via GET /api/apply/jobs/<id> either. Newest
-    first, so a freshly published job doesn't get buried."""
+    first, so a freshly published job doesn't get buried.
+
+    description is included here (unlike a typical list endpoint, which
+    might leave heavier fields to the detail view) specifically so the
+    landing page's per-job "Show Details" accordion can expand in place
+    without a second request per job - there's usually only a handful of
+    open jobs, so sending every description up front is cheap."""
     jobs = Job.query.filter_by(status='Published').order_by(Job.created_at.desc()).all()
     return jsonify([
         {
@@ -65,6 +71,7 @@ def list_public_jobs():
             "min_salary": job.min_salary,
             "max_salary": job.max_salary,
             "salary_period": job.salary_period,
+            "description": job.description,
         }
         for job in jobs
     ]), 200

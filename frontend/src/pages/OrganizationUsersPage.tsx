@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
 import { OverflowMenu } from '../components/OverflowMenu'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { User, UserRole } from '../api/types'
 
 const ROLES: UserRole[] = ['admin', 'recruiter', 'interviewer']
@@ -16,6 +17,8 @@ const ROLES: UserRole[] = ['admin', 'recruiter', 'interviewer']
  * password to the new user out of band, same as `flask create-user` already
  * requires today. */
 export function OrganizationUsersPage() {
+  usePageTitle('Users - HiringTool')
+
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

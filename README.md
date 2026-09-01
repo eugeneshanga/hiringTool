@@ -23,9 +23,8 @@ pip install -r requirements.txt
 flask db upgrade                # applies migrations (creates the DB on first run)
 ```
 
-Accounts can either self-register (see Auth below, `POST /api/auth/register`
-via the frontend's `/register` page — always created as `recruiter`) or be
-provisioned directly:
+Recruiter/admin accounts are provisioned directly — there's no self-service
+registration (an admin creates every account):
 
 ```bash
 flask create-user   # prompts for first/last name, email, password; --role for admin/interviewer
@@ -126,18 +125,17 @@ defaults documented above.
 
 ## Features so far
 
-- **Auth (recruiter side)** — JWT login, plus self-service registration
-  (`/register` on the frontend) for `recruiter` accounts. `admin`/
-  `interviewer` roles are only granted via `flask create-user --role`.
-- **Auth (candidate side)** — a separate login identity (`CandidateAccount`,
-  distinct from the recruiter `User` model) at `/apply/register` and
-  `/apply/login`, landing on a bare `/apply` home page once signed in. This
-  is the first slice of flipping the app to also work from a prospective
-  candidate's point of view — browsing/applying to jobs isn't built yet.
-  Candidate and recruiter tokens are both JWTs but carry an `account_type`
-  claim (`user` vs `candidate`) that `app.py`'s `token_verification_loader`
-  enforces, so one can never be used as the other — see the comment there,
-  since recruiter routes don't do their own role checks yet (next bullet).
+- **Auth (recruiter side)** — JWT login only, no self-service registration;
+  every account (`admin`/`recruiter`/`interviewer`) is provisioned by an
+  admin via `flask create-user --role`.
+- **Candidates never get their own login** — there's no candidate-side
+  account system at all. After applying, a candidate's only touchpoint is
+  the public status page (`/status`, `routes/status.py`): look up by
+  confirmation code (from the booking email), recover a lost code by email
+  (`POST /api/status/resend-code` — never reveals whether a match was
+  found, only ever triggers an email), and upload onboarding documents
+  against their application (`POST /api/status/documents`) — all
+  unauthenticated by design, gated only by the confirmation code.
 - **Jobs** — postings with type/location/salary/highlights/description,
   status (Published/Draft/Closed), and a numbered/reorderable **meeting
   stage** list per job (e.g. a "Virtual interview" stage named "CHHA"
@@ -180,12 +178,6 @@ defaults documented above.
   recruiter routes. (Candidate vs. recruiter is enforced, per the Auth
   bullet above — this gap is about the three recruiter roles not being
   differentiated from each other.)
-- Registering a `CandidateAccount` creates a matching, unassigned (`job_id`
-  null) `Candidate` row so recruiters see them on the Candidates list right
-  away (linked via `Candidate.candidate_account_id`) — but that's as far as
-  the linkage goes today. There's no "apply to a job" flow yet to attach a
-  candidate to a specific posting, so every self-registered candidate stays
-  unassigned until a recruiter manually assigns them a job.
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
 - Google Calendar integration only has the connect/disconnect plumbing so

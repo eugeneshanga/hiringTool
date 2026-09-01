@@ -1,12 +1,13 @@
-"""GET /api/status: public lookup of a booked interview by confirmation code
-or phone number, including the onboarding document checklist. See
-routes/status.py's module docstring for why phone lookups are scoped to only
-interviews actually booked through the public apply flow
-(Interview.confirmation_code IS NOT NULL), and for why there's no candidate
-login - POST /api/status/documents (tested below) is how a candidate submits
-onboarding documents instead, gated by the same code/phone check as the GET,
-and POST /api/status/resend-code (tested below too) is how they recover a
-lost confirmation code without ever revealing whether a lookup matched.
+"""GET /api/status: public lookup of a booked interview by confirmation
+code, including the onboarding document checklist. See routes/status.py's
+module docstring for why there's no candidate login, and for why lookups
+here are code-only (not also by phone or email - both were considered and
+rejected as direct-lookup identifiers, being too low-entropy to safely
+return a match directly) - POST /api/status/documents (tested below) is how
+a candidate submits onboarding documents instead, gated by the same code
+check as the GET, and POST /api/status/resend-code (tested below too) is
+how they recover a lost code by email without ever revealing whether a
+lookup matched.
 """
 import io
 import zipfile
@@ -21,7 +22,8 @@ from models import Candidate, CandidateDocument, Interview, Job, MeetingStageTem
 def _book(app, job, *, phone='555-123-4567', confirmation_code='ABC234XYZ', scheduled_start=None, public=True):
     """Creates a Candidate + Interview as if booked (or not) through the
     public apply flow. public=False mimics a recruiter-created interview -
-    no confirmation_code - to verify phone lookups never surface those."""
+    no confirmation_code - used by the resend-code tests below to verify
+    those are never surfaced."""
     scheduled_start = scheduled_start or (datetime.utcnow() + timedelta(days=2))
     with app.app_context():
         candidate = Candidate(name='Jane Applicant', email='jane@example.com', job_id=job.id, phone=phone)
@@ -40,7 +42,7 @@ def _book(app, job, *, phone='555-123-4567', confirmation_code='ABC234XYZ', sche
         return candidate.id, interview.id
 
 
-def test_requires_code_or_phone(client):
+def test_requires_code(client):
     resp = client.get('/api/status')
     assert resp.status_code == 400
 
@@ -62,52 +64,6 @@ def test_lookup_by_code_returns_booking_details(app, client, job):
 def test_lookup_by_unknown_code_returns_404(client):
     resp = client.get('/api/status?code=DOESNOTEXIST')
     assert resp.status_code == 404
-
-
-def test_lookup_by_phone_normalizes_formatting(app, client, job):
-    _book(app, job, phone='555-123-4567', confirmation_code='ABC234XYZ')
-
-    resp = client.get('/api/status?phone=(555) 123-4567')
-
-    assert resp.status_code == 200
-    assert resp.get_json()['confirmation_code'] == 'ABC234XYZ'
-
-
-def test_lookup_by_phone_with_country_code_prefix_matches(app, client, job):
-    _book(app, job, phone='555-123-4567', confirmation_code='ABC234XYZ')
-
-    resp = client.get('/api/status?phone=1-555-123-4567')
-
-    assert resp.status_code == 200
-
-
-def test_lookup_by_phone_never_surfaces_a_non_public_interview(app, client, job):
-    _book(app, job, phone='555-999-0000', public=False)
-
-    resp = client.get('/api/status?phone=555-999-0000')
-
-    assert resp.status_code == 404
-
-
-def test_lookup_by_too_short_phone_returns_404(client):
-    resp = client.get('/api/status?phone=555')
-    assert resp.status_code == 404
-
-
-def test_lookup_by_phone_prefers_soonest_upcoming_booking(app, client, job):
-    _book(
-        app, job, phone='555-123-4567', confirmation_code='PAST234XY',
-        scheduled_start=datetime.utcnow() - timedelta(days=10),
-    )
-    _book(
-        app, job, phone='555-123-4567', confirmation_code='FUT234XYZ',
-        scheduled_start=datetime.utcnow() + timedelta(days=3),
-    )
-
-    resp = client.get('/api/status?phone=555-123-4567')
-
-    assert resp.status_code == 200
-    assert resp.get_json()['confirmation_code'] == 'FUT234XYZ'
 
 
 def test_rate_limits_repeat_lookups_by_ip(client):
@@ -192,7 +148,7 @@ def test_status_onboarding_checklist_empty_when_job_has_no_items(app, client, jo
 
 # --- POST /api/status/documents ----------------------------------------------
 
-def test_upload_document_requires_code_or_phone(client):
+def test_upload_document_requires_code(client):
     resp = client.post('/api/status/documents', data={}, content_type='multipart/form-data')
     assert resp.status_code == 400
 
@@ -390,22 +346,6 @@ def test_upload_document_rejects_item_from_a_different_job(app, client, job, mee
     )
 
     assert resp.status_code == 400
-
-
-def test_upload_document_works_with_phone_lookup_too(app, client, job, meeting_stage):
-    _book(app, job, phone='555-123-4567', confirmation_code='ABC234XYZ')
-    item = _add_onboarding_item(app, meeting_stage)
-
-    resp = client.post(
-        '/api/status/documents',
-        data={
-            'phone': '555-123-4567', 'onboarding_item_id': str(item.id),
-            'file': (io.BytesIO(_pdf_bytes()), 'license.pdf'),
-        },
-        content_type='multipart/form-data',
-    )
-
-    assert resp.status_code == 200
 
 
 def test_upload_document_rate_limited(client):

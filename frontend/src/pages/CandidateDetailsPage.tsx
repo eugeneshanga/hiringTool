@@ -8,6 +8,7 @@ import { CandidateInfoCard } from './candidateDetails/CandidateInfoCard'
 import { StageTabs } from './candidateDetails/StageTabs'
 import { DocumentChecklist } from './candidateDetails/DocumentChecklist'
 import { ScreeningAnswers } from './candidateDetails/ScreeningAnswers'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { CandidateDetail, CandidateStage } from '../api/types'
 
 /** Fetches the candidate and hosts the shared error banner + Close/Share
@@ -18,6 +19,7 @@ export function CandidateDetailsPage() {
   const { candidateId } = useParams()
   const navigate = useNavigate()
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null)
+  usePageTitle(candidate ? `${candidate.name} - HiringTool` : 'Candidate - HiringTool')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeStage, setActiveStage] = useState<CandidateStage | null>(null)

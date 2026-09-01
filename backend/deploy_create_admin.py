@@ -16,7 +16,6 @@ No arguments needed. Safe to re-run - no-ops (with a message) if a user
 with that email already exists, same as the `flask create-user` CLI command.
 """
 import os
-
 from app import create_app
 from models import User, db
 
