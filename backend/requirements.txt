@@ -21,8 +21,8 @@ limits==5.8.0
 Mako==1.4.1
 MarkupSafe==3.0.3
 ordered-set==4.1.0
-psycopg2-binary==2.9.12
 pycparser==3.0
+PyMySQL==1.1.1
 pytest==9.1.1
 PyJWT==2.13.0
 python-dotenv==1.2.2

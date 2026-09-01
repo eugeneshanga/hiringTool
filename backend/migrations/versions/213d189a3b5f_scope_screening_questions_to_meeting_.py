@@ -42,9 +42,8 @@ def upgrade():
         sa.ForeignKeyConstraint(['meeting_stage_template_id'], ['meeting_stage_templates.id']),
         sa.PrimaryKeyConstraint('id'),
     )
-    op.drop_table('job_screening_questions')
-
     op.drop_table('candidate_screening_answers')
+    op.drop_table('job_screening_questions')
     op.create_table(
         'candidate_screening_answers',
         sa.Column('id', sa.Integer(), nullable=False),
@@ -61,6 +60,16 @@ def upgrade():
 def downgrade():
     op.drop_table('candidate_screening_answers')
     op.create_table(
+        'job_screening_questions',
+        sa.Column('id', sa.INTEGER(), nullable=False),
+        sa.Column('job_id', sa.INTEGER(), nullable=False),
+        sa.Column('question_text', sa.VARCHAR(length=500), nullable=False),
+        sa.Column('sort_order', sa.INTEGER(), nullable=False),
+        sa.Column('created_at', sa.DATETIME(), nullable=True),
+        sa.ForeignKeyConstraint(['job_id'], ['jobs.id']),
+        sa.PrimaryKeyConstraint('id'),
+    )
+    op.create_table(
         'candidate_screening_answers',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('candidate_id', sa.Integer(), nullable=False),
@@ -70,16 +79,5 @@ def downgrade():
         sa.ForeignKeyConstraint(['question_id'], ['job_screening_questions.id']),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('candidate_id', 'question_id', name='uq_candidate_question'),
-    )
-
-    op.create_table(
-        'job_screening_questions',
-        sa.Column('id', sa.INTEGER(), nullable=False),
-        sa.Column('job_id', sa.INTEGER(), nullable=False),
-        sa.Column('question_text', sa.VARCHAR(length=500), nullable=False),
-        sa.Column('sort_order', sa.INTEGER(), nullable=False),
-        sa.Column('created_at', sa.DATETIME(), nullable=True),
-        sa.ForeignKeyConstraint(['job_id'], ['jobs.id']),
-        sa.PrimaryKeyConstraint('id'),
     )
     op.drop_table('screening_questions')
