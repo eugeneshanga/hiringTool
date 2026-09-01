@@ -62,12 +62,6 @@ export function openBlob(blob: Blob) {
 }
 
 export const api = {
-  register: (data: { first_name: string; last_name: string; email: string; phone?: string; password: string }) =>
-    request<{ access_token: string; user: User }>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>('/api/auth/login', {
       method: 'POST',

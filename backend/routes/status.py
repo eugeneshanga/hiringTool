@@ -1,27 +1,28 @@
 """Public, unauthenticated lookup of a booked interview - the status page
 routes/apply.py's submit step redirects to, plus the "check back later" path
-via confirmation code or phone number (see the goal doc's step 5). Also the
-only place a candidate ever interacts with the app after applying: there's
-no candidate login (see models.py's Candidate.display_name docstring for
-the removed CandidateAccount) - the same code/phone lookup that shows status
-here also gates uploading onboarding documents (POST /api/status/documents),
-and a candidate who lost their confirmation code entirely can get it
-re-emailed by POST /api/status/resend-code, so a candidate never needs an
-account for any of this.
+via confirmation code (see the goal doc's step 5). Also the only place a
+candidate ever interacts with the app after applying: there's no candidate
+login (see models.py's Candidate.display_name docstring for the removed
+CandidateAccount) - the same code lookup that shows status here also gates
+uploading onboarding documents (POST /api/status/documents), and a
+candidate who lost their code entirely can get it re-emailed by POST
+/api/status/resend-code (by email, not phone - see that route's docstring
+for why), so a candidate never needs an account for any of this.
 
-Privacy note: a phone number is much lower-entropy than a confirmation code
-(10ish digits vs. a 9-char code from a 56-character alphabet), so a phone
-lookup is realistically guessable/enumerable in a way a code lookup isn't.
-Two things bound that here: GET/POST /api/status* are all rate-limited by
-IP, and a phone/email match only ever considers interviews actually booked
-through the public apply flow (Interview.confirmation_code IS NOT NULL) -
-never a recruiter-created interview, which this endpoint has no business
-exposing at all. POST /api/status/resend-code goes further still: unlike
-the other routes, it never reflects a match (or lack of one) back in its
-response at all - see that route's docstring.
+Privacy note: a confirmation code has enough entropy (9 chars from a
+56-character alphabet) that a direct lookup returning the match (as GET
+/api/status and POST /api/status/documents both do) is fine - guessing one
+isn't realistic. That's specifically NOT true of lower-entropy identifiers
+like a phone number or email address, which is why this file used to also
+accept a phone number here and doesn't anymore (a phone lookup being
+directly guessable/enumerable was an accepted, documented trade-off at the
+time; email is at least as guessable and this was a deliberate call not to
+carry the same trade-off forward for it). POST /api/status/resend-code is
+the one place email comes in, and it never reflects a match (or lack of
+one) back in its response at all - see that route's docstring - so it
+doesn't reopen the same hole.
 """
 import os
-import re
 import zipfile
 from datetime import datetime
 
@@ -34,23 +35,18 @@ from models import Candidate, CandidateDocument, Interview, OnboardingDocumentIt
 
 status_bp = Blueprint('status', __name__)
 
-# Below this many digits a "phone number" is too short to mean anything -
-# reject rather than run a lookup that would just fail to match (or, worse,
-# match too broadly against short/malformed stored values).
-MIN_PHONE_DIGITS = 7
-
 # Onboarding uploads through this public endpoint - deliberately narrower
 # than what a recruiter can upload on a candidate's behalf (routes/
 # candidates.py's upload_document has no type/size limit of its own beyond
-# the app-wide MAX_CONTENT_LENGTH), since this one has no auth beyond a
-# phone number or confirmation code.
+# the app-wide MAX_CONTENT_LENGTH), since this one has no auth beyond the
+# confirmation code.
 ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.docx', '.jpg', '.jpeg', '.png'}
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
 
 # Checked in addition to the extension - a filename's extension is trivially
-# spoofable, and this endpoint has no auth beyond the same code/phone check
-# GET /api/status uses. .docx gets its own, stronger check below (it's a
-# ZIP archive, and a raw byte-signature match can't tell a real .docx from
+# spoofable, and this endpoint has no auth beyond the same confirmation-code
+# check GET /api/status uses. .docx gets its own, stronger check below (it's
+# a ZIP archive, and a raw byte-signature match can't tell a real .docx from
 # any other renamed .zip).
 _FILE_SIGNATURES = {
     '.pdf': (b'%PDF',),
@@ -83,51 +79,15 @@ def _file_matches_extension(file_storage, ext):
     return any(header.startswith(sig) for sig in signatures)
 
 
-def _normalize_phone(value):
-    """Digits only, last 10 - so '(555) 123-4567', '555-123-4567', and
-    '15551234567' all compare equal. This app never normalizes phone at
-    storage time (see models.Candidate), so comparison has to tolerate
-    whatever formatting a candidate or recruiter typed in."""
-    digits = re.sub(r'\D', '', value or '')
-    return digits[-10:] if digits else ''
-
-
-def _booked_interview_for_phone(phone):
-    target = _normalize_phone(phone)
-    if len(target) < MIN_PHONE_DIGITS:
-        return None
-
-    matching_candidate_ids = {
-        c.id for c in Candidate.query.filter(Candidate.phone.isnot(None)).all()
-        if _normalize_phone(c.display_phone) == target
-    }
-    if not matching_candidate_ids:
-        return None
-
-    booked = Interview.query.filter(
-        Interview.confirmation_code.isnot(None),
-        Interview.candidates.any(Candidate.id.in_(matching_candidate_ids)),
-    ).all()
-    if not booked:
-        return None
-
-    # Same "soonest upcoming, else most recently touched" heuristic as
-    # Candidate._current_stage_summary() - a phone can match more than one
-    # booking (a candidate who's applied to more than one job), so pick the
-    # one most likely to be what they're checking on right now.
-    now = datetime.utcnow()
-    upcoming = [i for i in booked if i.scheduled_start >= now]
-    return min(upcoming, key=lambda i: i.scheduled_start) if upcoming else max(booked, key=lambda i: i.scheduled_start)
-
-
 def _booked_interview_for_email(email):
-    """Same lookup/tie-break as _booked_interview_for_phone, keyed by the
-    email a candidate applied with instead - see POST /api/status/resend-code.
-    is_plausible_email() is checked before this ever touches the database or
-    a send: not really an injection concern here (this is a lookup, not a
-    header), but there's no reason to run a query - or, worse, later hand a
-    malformed value to send_confirmation_email - against something that was
-    never a real email shape to begin with."""
+    """Looks up a booked Interview by the email a candidate applied with -
+    see POST /api/status/resend-code, the only place this is used (never a
+    direct-lookup identifier the way the confirmation code is - see module
+    docstring for why). is_plausible_email() is checked before this ever
+    touches the database or a send: not really an injection concern here
+    (this is a lookup, not a header), but there's no reason to run a query -
+    or, worse, later hand a malformed value to send_confirmation_email -
+    against something that was never a real email shape to begin with."""
     email = (email or '').strip().lower()
     if not is_plausible_email(email):
         return None
@@ -148,22 +108,20 @@ def _booked_interview_for_email(email):
     return min(upcoming, key=lambda i: i.scheduled_start) if upcoming else max(booked, key=lambda i: i.scheduled_start)
 
 
-def _resolve_interview(code, phone):
+def _resolve_interview(code):
     """The one booked Interview a status-page visitor is looking up, by
-    confirmation code or phone - shared by GET /api/status and POST
+    confirmation code - shared by GET /api/status and POST
     /api/status/documents, which both need to authenticate a visitor to
     exactly one Candidate the same way."""
-    if code:
-        return Interview.query.filter_by(confirmation_code=code).first()
-    return _booked_interview_for_phone(phone)
+    return Interview.query.filter_by(confirmation_code=code).first() if code else None
 
 
 def _onboarding_checklist(candidate):
     """Every onboarding item across all of the candidate's job's stages
     (see Job.onboarding_items), each annotated with whatever's already been
     uploaded - identical shape/logic to routes/candidates.py's
-    list_document_types, just reached by phone/code instead of recruiter
-    auth. Empty if the candidate has no job, or its stages define no
+    list_document_types, just reached by confirmation code instead of
+    recruiter auth. Empty if the candidate has no job, or its stages define no
     onboarding items - the frontend hides the whole section in that case."""
     uploaded = {d.onboarding_item_id: d.to_dict() for d in candidate.documents}
     items = candidate.job.onboarding_items if candidate.job else []
@@ -183,11 +141,10 @@ def _onboarding_checklist(candidate):
 @limiter.limit("20 per hour")
 def get_status():
     code = (request.args.get('code') or '').strip()
-    phone = (request.args.get('phone') or '').strip()
-    if not code and not phone:
-        return jsonify({"error": "code or phone is required"}), 400
+    if not code:
+        return jsonify({"error": "code is required"}), 400
 
-    interview = _resolve_interview(code, phone)
+    interview = _resolve_interview(code)
     if not interview:
         return jsonify({"error": "no matching application found"}), 404
 
@@ -211,7 +168,7 @@ def resend_confirmation_code():
     file, for a candidate who lost the original. Deliberately never reveals
     in the response whether a match was found (see module docstring): the
     only observable effect of a hit is an email landing in that address's
-    inbox, never anything in this response - unlike GET /api/status's phone
+    inbox, never anything in this response - unlike GET /api/status's code
     lookup, which returns the match directly, this can't be used as an
     email-enumeration oracle. Rate-limited tighter than that lookup too
     (5/hour vs. 20/hour) since a hit here spams a stranger's inbox, not
@@ -253,18 +210,17 @@ def resend_confirmation_code():
 @limiter.limit("10 per hour")
 def upload_status_document():
     """Lets a candidate upload (or replace) one onboarding document without
-    ever logging in - authenticated by the same code-or-phone check GET
-    /api/status uses, sent as form fields alongside the file since this is
+    ever logging in - authenticated by the same confirmation-code check GET
+    /api/status uses, sent as a form field alongside the file since this is
     multipart/form-data. Mirrors routes/candidates.py's upload_document
     (the recruiter-authenticated equivalent), plus the extension/magic-byte
     and size checks this public endpoint adds on top - see module-level
     ALLOWED_UPLOAD_EXTENSIONS/MAX_UPLOAD_SIZE_BYTES."""
     code = (request.form.get('code') or '').strip()
-    phone = (request.form.get('phone') or '').strip()
-    if not code and not phone:
-        return jsonify({"error": "code or phone is required"}), 400
+    if not code:
+        return jsonify({"error": "code is required"}), 400
 
-    interview = _resolve_interview(code, phone)
+    interview = _resolve_interview(code)
     candidate = interview.candidates[0] if interview and interview.candidates else None
     if not candidate:
         return jsonify({"error": "no matching application found"}), 404

@@ -535,58 +535,172 @@ button:disabled {
   margin-top: 0.5rem;
 }
 
-/* CareersLandingPage ('/') - org header + a list of job cards, wider than
-   the centered .public-card shell since it's a browsing page, not a form. */
-.landing-page {
+/* PublicHeader - the persistent top bar every public-facing page shares
+   (landing, apply, schedule, status). Sticky so the org's branding/the way
+   back to "/" stays visible while scrolling a long job description etc. */
+.public-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+}
+
+.public-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
   max-width: 800px;
   margin: 0 auto;
-  padding: 3rem 1.5rem 4rem;
 }
 
-.landing-header {
+.public-topbar-logo {
+  height: 32px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* CareersLandingPage ('/') - a full-bleed colored hero (org logo/name +
+   tagline) above a constrained body holding the job list, similar in
+   spirit to a typical careers-page hero banner. */
+.landing-page {
+  min-height: 100vh;
+}
+
+.landing-hero {
+  background: var(--primary);
+  color: white;
   text-align: center;
-  margin-bottom: 2.5rem;
+  padding: 3rem 1.5rem;
 }
 
-.landing-logo {
-  max-height: 96px;
-  max-width: 280px;
+.landing-hero-logo {
+  max-height: 72px;
+  max-width: 240px;
   object-fit: contain;
   margin-bottom: 1rem;
 }
 
-.landing-empty {
-  text-align: center;
+.landing-hero h1 {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
 }
 
-.landing-jobs-list {
+.landing-hero p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.landing-body {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.landing-jobs-card h2 {
+  margin-top: 0;
+}
+
+.job-row-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
 }
 
-.landing-job-card {
-  display: block;
-  text-decoration: none;
-  color: inherit;
-  transition: border-color 0.15s ease;
+.job-row {
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--border);
 }
 
-.landing-job-card:hover {
-  border-color: var(--primary);
+.job-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
-.landing-job-card h2 {
-  margin: 0 0 0.4rem;
+.job-row-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.job-row-info h3 {
+  margin: 0 0 0.35rem;
   font-size: 1.05rem;
 }
 
-.landing-job-meta {
+.job-row-meta {
   display: flex;
-  gap: 1rem;
   flex-wrap: wrap;
   color: var(--text-subtle);
+  font-size: 0.88rem;
+}
+
+.job-row-meta span + span::before {
+  content: '|';
+  margin: 0 0.55rem;
+  color: var(--border);
+}
+
+.job-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.job-row-schedule-button {
+  display: inline-block;
+  background: var(--primary);
+  color: white;
+  font-weight: 600;
+  padding: 0.5rem 1.1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.job-row-schedule-button:hover {
+  background: var(--primary-hover);
+}
+
+.job-row-details-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 0.85rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-weight: 600;
   font-size: 0.9rem;
+}
+
+.job-row-details-toggle:hover {
+  background: var(--bg);
+  opacity: 0.85;
+}
+
+.job-row-chevron {
+  transition: transform 0.15s ease;
+}
+
+.job-row-chevron.up {
+  transform: rotate(180deg);
+}
+
+.job-row-details {
+  margin-top: 0.6rem;
+  padding: 0.85rem;
+  background: var(--bg);
+  border-radius: 6px;
+  white-space: pre-wrap;
 }
 
 .landing-footer {

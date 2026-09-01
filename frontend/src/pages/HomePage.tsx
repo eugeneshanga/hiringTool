@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Candidate, Interview, Job, MeetingType } from '../api/types'
 
 const MEETING_TYPES: MeetingType[] = ['Interview', 'Orientation', 'Other']
@@ -30,6 +31,8 @@ function toLocalInputValue(date: Date) {
 }
 
 export function HomePage() {
+  usePageTitle('Home - HiringTool')
+
   const navigate = useNavigate()
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [jobs, setJobs] = useState<Job[]>([])

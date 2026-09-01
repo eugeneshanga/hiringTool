@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { useSavedFlash } from '../hooks/useSavedFlash'
+import { usePageTitle } from '../hooks/usePageTitle'
 import { useOrganizationContext } from './OrganizationLayout'
 
 interface ImagePickerProps {
@@ -119,6 +120,8 @@ function formatHourLabel(hour: number) {
  * scheduler offers candidates (see google_calendar.get_free_slots, which
  * reads these same fields). */
 export function OrganizationSettingsPage() {
+  usePageTitle('Organization - HiringTool')
+
   const { organization, reloadOrganization } = useOrganizationContext()
   const [name, setName] = useState(organization.name)
   const [saving, setSaving] = useState(false)

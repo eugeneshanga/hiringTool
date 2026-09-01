@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError, saveBlob } from '../api/client'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Candidate, Job, Stage } from '../api/types'
 import { formatPhone } from '../lib/formatPhone'
 
@@ -21,6 +22,8 @@ function csvCell(value: string) {
 }
 
 export function CandidatesPage() {
+  usePageTitle('Candidates - HiringTool')
+
   const navigate = useNavigate()
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [jobs, setJobs] = useState<Job[]>([])

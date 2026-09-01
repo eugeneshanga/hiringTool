@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { GoogleCalendarStatus } from '../api/types'
 
 const CALENDAR_ERROR_MESSAGES: Record<string, string> = {
@@ -16,6 +17,8 @@ const CALENDAR_ERROR_MESSAGES: Record<string, string> = {
  * info, plus the Google Calendar connection needed for interview/orientation
  * availability. "Done" saves the personal-info form and returns home. */
 export function ProfilePage() {
+  usePageTitle('Profile - HiringTool')
+
   const { user, updateUser } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()

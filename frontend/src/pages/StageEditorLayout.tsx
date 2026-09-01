@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
 import { ScheduleInterviewModal } from './ScheduleInterviewModal'
 import { MEETING_TYPES, needsOnboarding, needsPreScreen } from '../lib/meetingStageTypes'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Job, MeetingStageTemplate, StageMeetingType } from '../api/types'
 
 export interface StageEditorContext {
@@ -23,6 +24,7 @@ export function StageEditorLayout() {
   const { jobId, templateId } = useParams()
   const [job, setJob] = useState<Job | null>(null)
   const [template, setTemplate] = useState<MeetingStageTemplate | null>(null)
+  usePageTitle(template ? `${template.stage_name} - HiringTool` : 'Meeting Stage - HiringTool')
   const [error, setError] = useState<string | null>(null)
   const [sessionsVersion, setSessionsVersion] = useState(0)
 

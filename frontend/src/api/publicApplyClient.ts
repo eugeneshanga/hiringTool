@@ -112,20 +112,18 @@ export const publicApplyApi = {
       body: JSON.stringify(data),
     }),
 
-  getStatus: (params: { code?: string; phone?: string }) => {
-    const qs = new URLSearchParams()
-    if (params.code) qs.set('code', params.code)
-    if (params.phone) qs.set('phone', params.phone)
-    return publicRequest<ApplicationStatus>(`/api/status?${qs.toString()}`)
-  },
+  // Code-only, deliberately - see routes/status.py's module docstring for
+  // why a phone (or email) lookup never returns a match directly the way
+  // this does; resendCode below is how a candidate without their code gets
+  // one, without that risk.
+  getStatus: (code: string) => publicRequest<ApplicationStatus>(`/api/status?code=${encodeURIComponent(code)}`),
 
-  // Same code-or-phone identification as getStatus - a candidate re-sends
-  // whichever one they originally looked up with, alongside the file. See
-  // routes/status.py for the type/size validation this goes through.
-  uploadStatusDocument: (params: { code?: string; phone?: string }, onboardingItemId: number, file: File) => {
+  // Same code identification as getStatus - a candidate re-sends it
+  // alongside the file. See routes/status.py for the type/size validation
+  // this goes through.
+  uploadStatusDocument: (code: string, onboardingItemId: number, file: File) => {
     const form = new FormData()
-    if (params.code) form.append('code', params.code)
-    if (params.phone) form.append('phone', params.phone)
+    form.append('code', code)
     form.append('onboarding_item_id', String(onboardingItemId))
     form.append('file', file)
     return publicRequestForm<CandidateDocumentSubmission>('/api/status/documents', form)

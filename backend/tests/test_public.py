@@ -75,6 +75,7 @@ def test_list_public_jobs_shape_and_newest_first(app, client):
         older = Job(
             title='CHHA', status='Published', city='Elizabethtown', state='KY',
             job_type=['Full-time'], min_salary=15.0, max_salary=18.0, salary_period='Hourly',
+            description='Provide compassionate in-home care.',
         )
         db.session.add(older)
         db.session.commit()
@@ -93,6 +94,7 @@ def test_list_public_jobs_shape_and_newest_first(app, client):
     assert chha['min_salary'] == 15.0
     assert chha['max_salary'] == 18.0
     assert chha['salary_period'] == 'Hourly'
+    assert chha['description'] == 'Provide compassionate in-home care.'
     # Hand-picked public contract, not Job.to_dict() - no recruiter-only
     # fields like candidate_count leak through.
     assert 'candidate_count' not in chha

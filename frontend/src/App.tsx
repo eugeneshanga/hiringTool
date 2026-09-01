@@ -3,8 +3,8 @@ import { AuthProvider } from './auth/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { Layout } from './components/Layout'
+import { PublicPageLayout } from './components/PublicPageLayout'
 import { LoginPage } from './pages/LoginPage'
-import { RegisterPage } from './pages/RegisterPage'
 import { HomePage } from './pages/HomePage'
 import { ProfilePage } from './pages/ProfilePage'
 import { JobsPage } from './pages/JobsPage'
@@ -31,21 +31,23 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
         {/* Public apply flow — no login, see src/pages/publicApply/.
             Candidates never get their own account/login (see
             ApplicationStatusPage - phone/confirmation-code lookup, plus
             onboarding document upload, covers everything they need). */}
-        <Route path="/apply/job/:jobId" element={<PublicApplyPage />} />
-        <Route path="/apply/schedule/:token" element={<ScheduleApplicationPage />} />
-        <Route path="/status" element={<ApplicationStatusPage />} />
+        <Route path="/apply/job/:jobId" element={<PublicPageLayout><PublicApplyPage /></PublicPageLayout>} />
+        <Route
+          path="/apply/schedule/:token"
+          element={<PublicPageLayout><ScheduleApplicationPage /></PublicPageLayout>}
+        />
+        <Route path="/status" element={<PublicPageLayout><ApplicationStatusPage /></PublicPageLayout>} />
         {/* The site's default landing page - see CareersLandingPage's
             docstring. Public, unauthenticated, and deliberately at the
             root path: this app is hosted on its own dedicated subdomain
             (careers.fprecioushomecare.com), so "/" is what a candidate
             sees, not a recruiter dashboard - that's moved to /dashboard
             below. */}
-        <Route path="/" element={<CareersLandingPage />} />
+        <Route path="/" element={<PublicPageLayout><CareersLandingPage /></PublicPageLayout>} />
         <Route
           path="/dashboard"
           element={

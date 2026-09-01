@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { BlocklistEntry, BlocklistEntryType } from '../api/types'
 
 function formatDate(iso: string) {
@@ -12,6 +13,8 @@ function formatDate(iso: string) {
  * and when a recruiter adds a candidate by hand (see is_email_blocked in
  * models.py). */
 export function OrganizationBlocklistPage() {
+  usePageTitle('Blocklist - HiringTool')
+
   const [entries, setEntries] = useState<BlocklistEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

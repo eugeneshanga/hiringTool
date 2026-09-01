@@ -314,6 +314,10 @@ export interface PublicJobSummary {
   min_salary: number | null
   max_salary: number | null
   salary_period: SalaryPeriod | null
+  // Included here (unlike a typical list endpoint) so the landing page's
+  // per-job "Show Details" accordion can expand in place with no second
+  // request - see routes/public.py's list_public_jobs.
+  description: string | null
 }
 
 export interface PublicSlot {

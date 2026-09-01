@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { Modal } from '../components/Modal'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Job } from '../api/types'
 
 export interface JobDetailContext {
@@ -16,6 +17,7 @@ export function useJobDetailContext() {
 export function JobDetailLayout() {
   const { jobId } = useParams()
   const [job, setJob] = useState<Job | null>(null)
+  usePageTitle(job ? `${job.title} - HiringTool` : 'Job - HiringTool')
   const [error, setError] = useState<string | null>(null)
 
   const [editingTitle, setEditingTitle] = useState(false)
