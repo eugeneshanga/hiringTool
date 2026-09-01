@@ -130,6 +130,19 @@ export const publicApplyApi = {
     form.append('file', file)
     return publicRequestForm<CandidateDocumentSubmission>('/api/status/documents', form)
   },
+
+  // Deliberately not typed by/returning anything callers should branch on -
+  // routes/status.py's response is identical whether or not `email` matched
+  // anything, specifically so this can't be used to check which emails have
+  // applications on file. ApplicationStatusPage shows its own fixed message
+  // regardless of what comes back here; only a thrown ApiError (network
+  // failure, rate limit) is meaningfully different, and even that reveals
+  // nothing about whether a match exists.
+  resendCode: (email: string) =>
+    publicRequest<{ message: string }>('/api/status/resend-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
 }
 
 /** Every public-apply page needs the same "what do I show the user" mapping

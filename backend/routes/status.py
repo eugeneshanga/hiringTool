@@ -5,24 +5,29 @@ only place a candidate ever interacts with the app after applying: there's
 no candidate login (see models.py's Candidate.display_name docstring for
 the removed CandidateAccount) - the same code/phone lookup that shows status
 here also gates uploading onboarding documents (POST /api/status/documents),
-so a candidate never needs an account to finish onboarding.
+and a candidate who lost their confirmation code entirely can get it
+re-emailed by POST /api/status/resend-code, so a candidate never needs an
+account for any of this.
 
 Privacy note: a phone number is much lower-entropy than a confirmation code
 (10ish digits vs. a 9-char code from a 56-character alphabet), so a phone
 lookup is realistically guessable/enumerable in a way a code lookup isn't.
-Two things bound that here: both routes below are rate-limited by IP, and a
-phone match only ever considers interviews actually booked through the
-public apply flow (Interview.confirmation_code IS NOT NULL) - never a
-recruiter-created interview, which this endpoint has no business exposing
-at all.
+Two things bound that here: GET/POST /api/status* are all rate-limited by
+IP, and a phone/email match only ever considers interviews actually booked
+through the public apply flow (Interview.confirmation_code IS NOT NULL) -
+never a recruiter-created interview, which this endpoint has no business
+exposing at all. POST /api/status/resend-code goes further still: unlike
+the other routes, it never reflects a match (or lack of one) back in its
+response at all - see that route's docstring.
 """
 import os
 import re
 import zipfile
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
+from email_sender import is_plausible_email, send_confirmation_email
 from extensions import limiter
 from file_storage import delete_candidate_file, save_candidate_file
 from models import Candidate, CandidateDocument, Interview, OnboardingDocumentItem, db, iso_utc
@@ -115,6 +120,34 @@ def _booked_interview_for_phone(phone):
     return min(upcoming, key=lambda i: i.scheduled_start) if upcoming else max(booked, key=lambda i: i.scheduled_start)
 
 
+def _booked_interview_for_email(email):
+    """Same lookup/tie-break as _booked_interview_for_phone, keyed by the
+    email a candidate applied with instead - see POST /api/status/resend-code.
+    is_plausible_email() is checked before this ever touches the database or
+    a send: not really an injection concern here (this is a lookup, not a
+    header), but there's no reason to run a query - or, worse, later hand a
+    malformed value to send_confirmation_email - against something that was
+    never a real email shape to begin with."""
+    email = (email or '').strip().lower()
+    if not is_plausible_email(email):
+        return None
+
+    matching_candidate_ids = {c.id for c in Candidate.query.filter_by(email=email).all()}
+    if not matching_candidate_ids:
+        return None
+
+    booked = Interview.query.filter(
+        Interview.confirmation_code.isnot(None),
+        Interview.candidates.any(Candidate.id.in_(matching_candidate_ids)),
+    ).all()
+    if not booked:
+        return None
+
+    now = datetime.utcnow()
+    upcoming = [i for i in booked if i.scheduled_start >= now]
+    return min(upcoming, key=lambda i: i.scheduled_start) if upcoming else max(booked, key=lambda i: i.scheduled_start)
+
+
 def _resolve_interview(code, phone):
     """The one booked Interview a status-page visitor is looking up, by
     confirmation code or phone - shared by GET /api/status and POST
@@ -168,6 +201,51 @@ def get_status():
         "meeting_link": interview.meeting_link,
         "confirmation_code": interview.confirmation_code,
         "onboarding_documents": _onboarding_checklist(candidate) if candidate else [],
+    }), 200
+
+
+@status_bp.route('/api/status/resend-code', methods=['POST'])
+@limiter.limit("5 per hour")
+def resend_confirmation_code():
+    """Re-sends an existing booking's confirmation email to the address on
+    file, for a candidate who lost the original. Deliberately never reveals
+    in the response whether a match was found (see module docstring): the
+    only observable effect of a hit is an email landing in that address's
+    inbox, never anything in this response - unlike GET /api/status's phone
+    lookup, which returns the match directly, this can't be used as an
+    email-enumeration oracle. Rate-limited tighter than that lookup too
+    (5/hour vs. 20/hour) since a hit here spams a stranger's inbox, not
+    just probes for a match - a real cost to a bystander, not just this
+    app's own data."""
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip()
+
+    interview = _booked_interview_for_email(email)
+    candidate = interview.candidates[0] if interview and interview.candidates else None
+    if candidate:
+        status_url = f"{current_app.config['FRONTEND_BASE_URL']}/status?code={interview.confirmation_code}"
+        try:
+            send_confirmation_email(
+                to_email=candidate.display_email,
+                candidate_name=candidate.display_name,
+                job_title=interview.job.title if interview.job else '',
+                stage_name=interview.stage_name,
+                scheduled_start=interview.scheduled_start,
+                meeting_link=interview.meeting_link,
+                confirmation_code=interview.confirmation_code,
+                status_url=status_url,
+            )
+        except Exception:
+            # Best-effort, same as apply.py's own sends - a delivery failure
+            # shouldn't turn into a 500, and must especially not turn into a
+            # response that differs from the no-match case (see docstring).
+            current_app.logger.exception(
+                "Failed to resend confirmation email for interview %s", interview.id,
+            )
+
+    return jsonify({
+        "message": "If that email matches an application with a scheduled interview, "
+                   "we've sent the confirmation code to it.",
     }), 200
 
 

@@ -9,6 +9,16 @@ function formatDateTime(iso: string) {
   })
 }
 
+// Fixed, hardcoded on the frontend rather than displaying whatever
+// publicApplyApi.resendCode's response happens to contain - the backend
+// already guarantees an identical response either way (see routes/
+// status.py's resend_confirmation_code), but keeping the copy fixed here
+// too means the frontend can never accidentally start branching on
+// response content if that ever changed, which is the whole point of the
+// backend never revealing a match either.
+const RESEND_CODE_MESSAGE =
+  "If that email matches an application with a scheduled interview, we've sent the confirmation code to it."
+
 /** Public, read-only lookup (GET /api/status) — reached via the link in the
  * confirmation email (?code=...), or by hand with a confirmation code or
  * phone number for anyone who didn't keep that email. See routes/status.py
@@ -19,7 +29,10 @@ function formatDateTime(iso: string) {
  * applying — there's no candidate login (see models.py's Candidate
  * docstring for the removed CandidateAccount). Once a lookup succeeds, the
  * same code/phone that found it also gates uploading onboarding documents
- * (POST /api/status/documents) — see handleUpload below. */
+ * (POST /api/status/documents) — see handleUpload below. A candidate who
+ * lost their code entirely uses the "Forgot your code?" form instead (see
+ * handleResendCode) - a different recovery path from either of those, since
+ * it doesn't require already having the code or phone on hand. */
 export function ApplicationStatusPage() {
   const [searchParams] = useSearchParams()
   const initialCode = searchParams.get('code') ?? ''
@@ -36,6 +49,15 @@ export function ApplicationStatusPage() {
   const [loading, setLoading] = useState(false)
   const [uploadingItemId, setUploadingItemId] = useState<number | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const [showForgotForm, setShowForgotForm] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSubmitting, setForgotSubmitting] = useState(false)
+  // Distinct from RESEND_CODE_MESSAGE: this is only ever a real request
+  // failure (network error, rate limit) - never anything derived from
+  // whether resendCode found a match, since that's never surfaced at all.
+  const [forgotRequestError, setForgotRequestError] = useState<string | null>(null)
+  const [forgotSubmitted, setForgotSubmitted] = useState(false)
 
   async function runLookup(params: { code?: string; phone?: string }) {
     setLoading(true)
@@ -98,6 +120,26 @@ export function ApplicationStatusPage() {
     }
   }
 
+  async function handleResendCode(e: FormEvent) {
+    e.preventDefault()
+    const trimmedEmail = forgotEmail.trim()
+    if (!trimmedEmail) return
+    setForgotSubmitting(true)
+    setForgotRequestError(null)
+    try {
+      await publicApplyApi.resendCode(trimmedEmail)
+      // Deliberately ignore whatever the response actually contains - see
+      // RESEND_CODE_MESSAGE. Shown regardless of whether a match existed.
+      setForgotSubmitted(true)
+    } catch (err) {
+      // A real failure (network error, the 5/hour rate limit) - not a
+      // "no match" signal, since a miss returns this same 200 as a hit.
+      setForgotRequestError(publicErrorMessage(err))
+    } finally {
+      setForgotSubmitting(false)
+    }
+  }
+
   function renderChecklistItem(item: CandidateDocumentChecklistItem) {
     return (
       <div key={item.item_id} className="document-row">
@@ -138,6 +180,33 @@ export function ApplicationStatusPage() {
             {loading ? 'Looking up…' : 'Look up'}
           </button>
         </form>
+
+        <div className="forgot-code">
+          {!showForgotForm ? (
+            <button type="button" className="link-button" onClick={() => setShowForgotForm(true)}>
+              Forgot your code?
+            </button>
+          ) : forgotSubmitted ? (
+            <p className="subtle">{RESEND_CODE_MESSAGE}</p>
+          ) : (
+            <form className="form" onSubmit={handleResendCode}>
+              <label>
+                Email you applied with
+                <input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </label>
+              {forgotRequestError && <div className="error-banner">{forgotRequestError}</div>}
+              <button type="submit" disabled={forgotSubmitting}>
+                {forgotSubmitting ? 'Sending…' : 'Send my code'}
+              </button>
+            </form>
+          )}
+        </div>
 
         {error && <div className="error-banner">{error}</div>}
 

@@ -4,7 +4,9 @@ routes/status.py's module docstring for why phone lookups are scoped to only
 interviews actually booked through the public apply flow
 (Interview.confirmation_code IS NOT NULL), and for why there's no candidate
 login - POST /api/status/documents (tested below) is how a candidate submits
-onboarding documents instead, gated by the same code/phone check as the GET.
+onboarding documents instead, gated by the same code/phone check as the GET,
+and POST /api/status/resend-code (tested below too) is how they recover a
+lost confirmation code without ever revealing whether a lookup matched.
 """
 import io
 import zipfile
@@ -12,6 +14,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+import routes.status as status_module
 from models import Candidate, CandidateDocument, Interview, Job, MeetingStageTemplate, OnboardingDocumentItem, db
 
 
@@ -418,5 +421,109 @@ def test_upload_document_rate_limited(client):
         data={'code': 'NOPE', 'onboarding_item_id': '1', 'file': (io.BytesIO(_pdf_bytes()), 'x.pdf')},
         content_type='multipart/form-data',
     )
+
+    assert resp.status_code == 429
+
+
+# --- POST /api/status/resend-code --------------------------------------------
+
+GENERIC_RESEND_MESSAGE = (
+    "If that email matches an application with a scheduled interview, "
+    "we've sent the confirmation code to it."
+)
+
+
+@pytest.fixture
+def mock_confirmation_email(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        status_module, 'send_confirmation_email', lambda **kwargs: calls.append(kwargs) or True
+    )
+    return calls
+
+
+def test_resend_code_generic_response_for_unknown_email(client, mock_confirmation_email):
+    resp = client.post('/api/status/resend-code', json={'email': 'nobody@example.com'})
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"message": GENERIC_RESEND_MESSAGE}
+    assert mock_confirmation_email == []  # no match, nothing sent
+
+
+def test_resend_code_sends_email_and_returns_the_identical_generic_response(app, client, job, mock_confirmation_email):
+    _book(app, job)  # candidate email defaults to jane@example.com, confirmation_code to ABC234XYZ
+
+    resp = client.post('/api/status/resend-code', json={'email': 'jane@example.com'})
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"message": GENERIC_RESEND_MESSAGE}  # byte-identical to the no-match case
+    assert len(mock_confirmation_email) == 1
+    sent = mock_confirmation_email[0]
+    assert sent['to_email'] == 'jane@example.com'
+    assert sent['candidate_name'] == 'Jane Applicant'
+    assert sent['confirmation_code'] == 'ABC234XYZ'
+
+
+def test_resend_code_response_identical_whether_or_not_a_match_exists(app, client, job, mock_confirmation_email):
+    _book(app, job)
+
+    match_resp = client.post('/api/status/resend-code', json={'email': 'jane@example.com'})
+    no_match_resp = client.post('/api/status/resend-code', json={'email': 'stranger@example.com'})
+
+    assert match_resp.status_code == no_match_resp.status_code == 200
+    assert match_resp.get_json() == no_match_resp.get_json()
+
+
+def test_resend_code_ignores_a_non_public_interview(app, client, job, mock_confirmation_email):
+    _book(app, job, public=False)
+
+    resp = client.post('/api/status/resend-code', json={'email': 'jane@example.com'})
+
+    assert resp.status_code == 200
+    assert mock_confirmation_email == []
+
+
+def test_resend_code_handles_malformed_email_without_erroring(client, mock_confirmation_email):
+    resp = client.post('/api/status/resend-code', json={'email': 'not-an-email\r\nBcc: evil@example.com'})
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"message": GENERIC_RESEND_MESSAGE}
+    assert mock_confirmation_email == []
+
+
+def test_resend_code_handles_missing_email_without_erroring(client, mock_confirmation_email):
+    resp = client.post('/api/status/resend-code', json={})
+
+    assert resp.status_code == 200
+    assert mock_confirmation_email == []
+
+
+def test_resend_code_email_match_is_case_insensitive(app, client, job, mock_confirmation_email):
+    _book(app, job)
+
+    resp = client.post('/api/status/resend-code', json={'email': 'JANE@EXAMPLE.COM'})
+
+    assert resp.status_code == 200
+    assert len(mock_confirmation_email) == 1
+
+
+def test_resend_code_a_delivery_failure_still_returns_the_generic_response(app, client, job, monkeypatch):
+    def _raise(**kwargs):
+        raise RuntimeError("Resend is down")
+
+    monkeypatch.setattr(status_module, 'send_confirmation_email', _raise)
+    _book(app, job)
+
+    resp = client.post('/api/status/resend-code', json={'email': 'jane@example.com'})
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"message": GENERIC_RESEND_MESSAGE}
+
+
+def test_resend_code_rate_limited(client):
+    for _ in range(5):
+        client.post('/api/status/resend-code', json={'email': 'nobody@example.com'})
+
+    resp = client.post('/api/status/resend-code', json={'email': 'nobody@example.com'})
 
     assert resp.status_code == 429
