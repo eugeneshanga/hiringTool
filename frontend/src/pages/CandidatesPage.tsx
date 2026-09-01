@@ -229,18 +229,7 @@ export function CandidatesPage() {
                 <tr key={c.id} className="clickable-row" onClick={() => navigate(`/candidates/${c.id}`)}>
                   <td>
                     <div className="candidate-cell">
-                      <div className="candidate-cell-name">
-                        {c.name}
-                        {c.candidate_account_id != null && (
-                          <span
-                            className="chip"
-                            style={{ marginLeft: '0.5rem' }}
-                            title="Created their own account by registering"
-                          >
-                            Self-registered
-                          </span>
-                        )}
-                      </div>
+                      <div className="candidate-cell-name">{c.name}</div>
                       <div className="candidate-cell-contact subtle">
                         <div>{c.email}</div>
                         {c.phone && <div>{formatPhone(c.phone)}</div>}

@@ -87,6 +87,14 @@ Serves on **http://localhost:5173**. Reads the API URL from
 `frontend/.env` (`VITE_API_URL`, defaults to `http://127.0.0.1:5050`) — copy
 `.env.example` if you don't have one yet.
 
+### Deploying
+
+Production runs on HostPinnacle (DirectAdmin) — see
+**[DEPLOYMENT.md](DEPLOYMENT.md)** for the full runbook.
+`scripts/build_deploy_package.sh` builds the deploy zip; everything after
+that is a manual File Manager upload (no SSH on this hosting plan, and
+DirectAdmin's Git integration doesn't support this deployment's subdomain).
+
 ## Environment / config
 
 - `database.env` (repo root) — set `DATABASE_URL` here to point at Postgres.

@@ -2,7 +2,7 @@ import logging
 import os
 
 import click
-from flask import Flask, request, send_from_directory
+from flask import Flask, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate, upgrade
@@ -14,7 +14,6 @@ from routes.candidates import candidates_bp
 from routes.jobs import jobs_bp
 from routes.auth import auth_bp
 from routes.calendar_auth import calendar_auth_bp
-from routes.candidate_auth import candidate_auth_bp
 from routes.interviews import interviews_bp
 from routes.meeting_stages import meeting_stages_bp
 from routes.screening_questions import screening_questions_bp
@@ -22,6 +21,7 @@ from routes.onboarding_items import onboarding_items_bp
 from routes.organization import organization_bp
 from routes.apply import apply_bp
 from routes.status import status_bp
+from routes.public import public_bp
 
 migrate = Migrate()
 
@@ -62,30 +62,24 @@ def create_app(config_overrides=None):
     CORS(app)
     limiter.init_app(app)
 
-    # Recruiter (User) and candidate (CandidateAccount) accounts are separate
-    # identities issued from separate login flows — a token's `account_type`
-    # claim says which (named that, not `type`, because flask-jwt-extended
-    # already reserves a built-in `type` claim for "access" vs "refresh" —
-    # reusing that name silently collides with it). Without this check, a
-    # candidate token would pass @jwt_required() on recruiter routes just
-    # fine (those don't check role at all yet — see README's "Known gaps"),
-    # which is a real privilege-escalation path, not just a cosmetic
-    # mismatch. Candidate routes live under /api/candidate/; everything else
-    # is recruiter-only. Tokens issued before this claim existed have no
-    # `account_type` and are treated as recruiter tokens, so existing
-    # sessions aren't force-logged-out.
+    # Every JWT issued from here on is a recruiter (User) token - candidates
+    # never got their own login in practice (see ApplicationStatusPage /
+    # routes/status.py for the phone/confirmation-code alternative that
+    # replaced it, and the removed CandidateAccount model). This still
+    # rejects any leftover `account_type: candidate` token from before that
+    # removal as a defense-in-depth belt-and-suspenders - not load-bearing
+    # today, but costs nothing to keep, and avoids trusting a token shape
+    # this app no longer issues. Tokens with no `account_type` claim at all
+    # (issued before the claim existed) are still treated as valid recruiter
+    # tokens, so no one's existing session gets force-logged-out by this.
     @jwt.token_verification_loader
     def verify_token_type(_jwt_header, jwt_payload):
-        account_type = jwt_payload.get('account_type', 'user')
-        if request.path.startswith('/api/candidate/'):
-            return account_type == 'candidate'
-        return account_type == 'user'
+        return jwt_payload.get('account_type', 'user') == 'user'
 
     app.register_blueprint(candidates_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(calendar_auth_bp)
-    app.register_blueprint(candidate_auth_bp)
     app.register_blueprint(interviews_bp)
     app.register_blueprint(meeting_stages_bp)
     app.register_blueprint(screening_questions_bp)
@@ -93,6 +87,7 @@ def create_app(config_overrides=None):
     app.register_blueprint(organization_bp)
     app.register_blueprint(apply_bp)
     app.register_blueprint(status_bp)
+    app.register_blueprint(public_bp)
 
     @app.route('/api/health', methods=['GET'])
     def health_check():

@@ -13,7 +13,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
 
   if (user) {
-    const dest = (location.state as { from?: string } | null)?.from ?? '/'
+    const dest = (location.state as { from?: string } | null)?.from ?? '/dashboard'
     return <Navigate to={dest} replace />
   }
 
@@ -23,7 +23,7 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       await login(email, password)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
     } finally {

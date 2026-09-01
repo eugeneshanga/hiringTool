@@ -1,5 +1,13 @@
 import { ApiError, BASE_URL } from './httpClient'
-import type { ApplicationStatus, BookingConfirmation, PublicApplication, PublicJob } from './types'
+import type {
+  ApplicationStatus,
+  BookingConfirmation,
+  CandidateDocumentSubmission,
+  PublicApplication,
+  PublicJob,
+  PublicJobSummary,
+  PublicOrganizationInfo,
+} from './types'
 
 // No auth at all — every route here is public (backend/routes/apply.py,
 // routes/status.py). A small dedicated client rather than reusing
@@ -36,6 +44,22 @@ async function publicRequestForm<T>(path: string, formData: FormData): Promise<T
   return body as T
 }
 
+/** Like publicRequest, but for a raw file (the landing page's organization
+ * logo) rather than JSON - mirrors httpClient.ts's requestBlob, minus the
+ * auth header (nothing here needs one - see routes/public.py). */
+async function publicRequestBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE_URL}${path}`)
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`
+    if (res.headers.get('content-type')?.includes('application/json')) {
+      const body = await res.json()
+      message = body?.error ?? message
+    }
+    throw new ApiError(res.status, message)
+  }
+  return res.blob()
+}
+
 export interface ApplyFormInput {
   first_name: string
   last_name: string
@@ -65,6 +89,12 @@ export interface ApplyFormInput {
 export const publicApplyApi = {
   getJob: (jobId: number) => publicRequest<PublicJob>(`/api/apply/jobs/${jobId}`),
 
+  getOrganization: () => publicRequest<PublicOrganizationInfo>('/api/public/organization'),
+
+  getOrganizationLogo: () => publicRequestBlob('/api/public/organization/logo'),
+
+  listJobs: () => publicRequest<PublicJobSummary[]>('/api/public/jobs'),
+
   apply: (data: ApplyFormInput) => {
     const form = new FormData()
     for (const [key, value] of Object.entries(data)) {
@@ -88,6 +118,31 @@ export const publicApplyApi = {
     if (params.phone) qs.set('phone', params.phone)
     return publicRequest<ApplicationStatus>(`/api/status?${qs.toString()}`)
   },
+
+  // Same code-or-phone identification as getStatus - a candidate re-sends
+  // whichever one they originally looked up with, alongside the file. See
+  // routes/status.py for the type/size validation this goes through.
+  uploadStatusDocument: (params: { code?: string; phone?: string }, onboardingItemId: number, file: File) => {
+    const form = new FormData()
+    if (params.code) form.append('code', params.code)
+    if (params.phone) form.append('phone', params.phone)
+    form.append('onboarding_item_id', String(onboardingItemId))
+    form.append('file', file)
+    return publicRequestForm<CandidateDocumentSubmission>('/api/status/documents', form)
+  },
+
+  // Deliberately not typed by/returning anything callers should branch on -
+  // routes/status.py's response is identical whether or not `email` matched
+  // anything, specifically so this can't be used to check which emails have
+  // applications on file. ApplicationStatusPage shows its own fixed message
+  // regardless of what comes back here; only a thrown ApiError (network
+  // failure, rate limit) is meaningfully different, and even that reveals
+  // nothing about whether a match exists.
+  resendCode: (email: string) =>
+    publicRequest<{ message: string }>('/api/status/resend-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
 }
 
 /** Every public-apply page needs the same "what do I show the user" mapping

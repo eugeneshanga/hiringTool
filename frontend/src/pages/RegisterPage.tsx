@@ -16,7 +16,7 @@ export function RegisterPage() {
   const [submitting, setSubmitting] = useState(false)
 
   if (user) {
-    return <Navigate to="/" replace />
+    return <Navigate to="/dashboard" replace />
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -37,7 +37,7 @@ export function RegisterPage() {
         phone: phone || undefined,
         password,
       })
-      navigate('/')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
     } finally {
