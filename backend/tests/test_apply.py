@@ -62,7 +62,7 @@ def _post_apply(client, **overrides):
 
 # --- happy path -------------------------------------------------------------
 
-def test_creates_candidate_with_no_account_and_a_live_application_token(app, client, job, mock_email):
+def test_creates_candidate_with_a_live_application_token(app, client, job, mock_email):
     resp = _post_apply(
         client, email='Jane@Example.com', phone='555-1234', job_id=job.id,
         address_line1='123 Main St', city='Springfield', state='IL', postal_code='62704',
@@ -76,7 +76,6 @@ def test_creates_candidate_with_no_account_and_a_live_application_token(app, cli
         assert candidate is not None
         assert candidate.name == 'Jane Applicant'  # first_name + last_name combined
         assert candidate.email == 'jane@example.com'  # normalized to lowercase
-        assert candidate.candidate_account_id is None
         assert candidate.address_line1 == '123 Main St'
         assert candidate.city == 'Springfield'
         assert candidate.state == 'IL'

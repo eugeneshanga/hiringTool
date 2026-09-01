@@ -99,9 +99,9 @@ class CalendarConnection(db.Model):
     token_expiry = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # backref='calendar_connection' mirrors CandidateAccount.candidates below
-    # (backref='candidate_account') — the FK lives here, User just gets the
-    # reverse accessor. uselist=False since it's one connection per user.
+    # backref='calendar_connection' mirrors Job.candidates below
+    # (backref='job') — the FK lives here, User just gets the reverse
+    # accessor. uselist=False since it's one connection per user.
     user = db.relationship('User', backref=db.backref('calendar_connection', uselist=False))
 
     def to_dict(self):
@@ -109,49 +109,6 @@ class CalendarConnection(db.Model):
             "id": self.id,
             "user_id": self.user_id,
             "google_email": self.google_email,
-            "created_at": iso_utc(self.created_at),
-        }
-
-
-class CandidateAccount(db.Model):
-    """A prospective candidate's own login — distinct from Candidate, which is
-    the per-job application/pipeline record recruiters manage. One person can
-    hold a single CandidateAccount and (eventually) apply to many jobs; linking
-    an account to specific Candidate rows is future work, not modeled yet."""
-    __tablename__ = 'candidate_accounts'
-
-    id = db.Column(db.Integer, primary_key=True)
-    first_name = db.Column(db.String(120), nullable=False)
-    last_name = db.Column(db.String(120), nullable=False)
-    phone = db.Column(db.String(20))
-    email = db.Column(db.String(120), nullable=False, unique=True)
-    password_hash = db.Column(db.String(255), nullable=False)
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    # backref='candidate_account' mirrors Job.candidates below (backref='job') —
-    # the FK lives on Candidate, this side just gets the reverse accessor.
-    candidates = db.relationship('Candidate', backref='candidate_account', lazy=True)
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
-
-    @property
-    def name(self):
-        return f"{self.first_name} {self.last_name}".strip()
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "first_name": self.first_name,
-            "last_name": self.last_name,
-            "name": self.name,
-            "phone": self.phone,
-            "email": self.email,
-            "is_active": self.is_active,
             "created_at": iso_utc(self.created_at),
         }
 
@@ -440,28 +397,10 @@ class Candidate(db.Model):
     __tablename__ = 'candidates'
 
     id = db.Column(db.Integer, primary_key=True)
-    # For an account-linked candidate (candidate_account_id set), these three
-    # are a point-in-time snapshot taken at registration — NOT the source of
-    # truth. display_name/display_email/display_phone below are: they read
-    # live from candidate_account when linked, and everything that surfaces a
-    # candidate's contact info (to_dict, to_detail_dict, Interview.to_dict's
-    # enrolled-candidate list) goes through those, not these columns directly.
-    # The columns stay NOT NULL and still get written on creation because
-    # hand-added candidates (candidate_account_id is None) have nowhere else
-    # to store their info — they're the only source of truth for those rows,
-    # and dropping them would break that case entirely, not just the linked
-    # one. They also act as a fallback if candidate_account is ever missing
-    # (e.g. a deleted account) instead of surfacing an empty/null contact.
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(20))
     job_id = db.Column(db.Integer, db.ForeignKey('jobs.id'), nullable=True)
-    # Set when this row was created from a candidate's self-registration
-    # (routes/candidate_auth.py) rather than by a recruiter. Nullable because
-    # recruiters can still add candidates by hand with no account behind them.
-    candidate_account_id = db.Column(
-        db.Integer, db.ForeignKey('candidate_accounts.id'), nullable=True
-    )
     stage = db.Column(db.String(50), default='Applied')  # e.g. Applied, Interview, Offer, Hired, Rejected
     status = db.Column(db.String(50), default='Active')
     interviewer = db.Column(db.String(120))
@@ -469,8 +408,8 @@ class Candidate(db.Model):
     city = db.Column(db.String(120))
     state = db.Column(db.String(60))
     # Street address - only collected via the public apply flow today
-    # (routes/apply.py); candidates added by hand or self-registered have
-    # this null, same as resume below.
+    # (routes/apply.py); candidates added by hand have this null, same as
+    # resume below.
     address_line1 = db.Column(db.String(255))
     postal_code = db.Column(db.String(20))
     source = db.Column(db.String(120))  # e.g. Indeed, Referral
@@ -484,8 +423,8 @@ class Candidate(db.Model):
     work_authorized = db.Column(db.Boolean, nullable=True)
     requires_visa_sponsorship = db.Column(db.Boolean, nullable=True)
     # The public apply flow's link back to this candidate's prescreen +
-    # scheduling page (routes/apply.py) - null for candidates created any
-    # other way (recruiter-added, self-registered account). 64 hex chars from
+    # scheduling page (routes/apply.py) - null for candidates added by hand
+    # instead. 64 hex chars from
     # models.generate_application_token; expires_at bounds how long that link
     # stays live, both to fail closed on a stale email and so dedupe (same
     # email+job re-applying) knows whether the existing row is still "live".
@@ -521,17 +460,27 @@ class Candidate(db.Model):
     def location(self):
         return ", ".join(filter(None, [self.city, self.state])) or None
 
+    # Kept as properties (not just reading .name/.email/.phone directly)
+    # since to_dict/to_detail_dict/Interview.to_dict's enrolled-candidate
+    # list all go through these rather than the raw columns - a holdover
+    # from when a candidate could be linked to their own self-registered
+    # account (CandidateAccount) and these read live from there instead.
+    # That concept was removed - candidates never get their own login; see
+    # ApplicationStatusPage/routes/status.py for the phone/code-based
+    # alternative - so these are direct passthroughs now, but keeping the
+    # properties means nothing that already calls display_name/etc. needed
+    # to change.
     @property
     def display_name(self):
-        return self.candidate_account.name if self.candidate_account else self.name
+        return self.name
 
     @property
     def display_email(self):
-        return self.candidate_account.email if self.candidate_account else self.email
+        return self.email
 
     @property
     def display_phone(self):
-        return self.candidate_account.phone if self.candidate_account else self.phone
+        return self.phone
 
     def to_dict(self):
         return {
@@ -541,7 +490,6 @@ class Candidate(db.Model):
             "phone": self.display_phone,
             "job_id": self.job_id,
             "job_title": self.job.title if self.job else None,
-            "candidate_account_id": self.candidate_account_id,
             "stage": self.stage,
             "status": self.status,
             "interviewer": self.interviewer,
@@ -783,8 +731,8 @@ class Organization(db.Model):
 
 class BlocklistEntry(db.Model):
     """An email address or email domain barred from becoming a candidate -
-    checked at candidate self-registration (candidate_auth.py) and when a
-    recruiter adds a candidate by hand (routes/candidates.py)."""
+    checked on the public apply flow (routes/apply.py) and when a recruiter
+    adds a candidate by hand (routes/candidates.py)."""
     __tablename__ = 'blocklist_entries'
 
     id = db.Column(db.Integer, primary_key=True)

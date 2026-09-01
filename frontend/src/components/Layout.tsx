@@ -6,11 +6,11 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <Link to="/" className="brand">
+        <Link to="/dashboard" className="brand">
           HiringTool
         </Link>
         <nav>
-          <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink to="/dashboard" end className={({ isActive }) => (isActive ? 'active' : '')}>
             Home
           </NavLink>
           <NavLink to="/jobs" className={({ isActive }) => (isActive ? 'active' : '')}>

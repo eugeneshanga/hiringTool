@@ -4,7 +4,7 @@ import pytest
 from flask_jwt_extended import create_access_token
 
 from app import create_app
-from models import Candidate, CandidateAccount, Job, MeetingStageTemplate, User, db
+from models import Candidate, Job, MeetingStageTemplate, User, db
 
 
 @pytest.fixture
@@ -80,26 +80,6 @@ def admin_user(app):
 def admin_headers(app, admin_user):
     with app.app_context():
         token = create_access_token(identity=str(admin_user.id), additional_claims={'account_type': 'user'})
-    return {'Authorization': f'Bearer {token}'}
-
-
-@pytest.fixture
-def candidate_account(app):
-    with app.app_context():
-        a = CandidateAccount(first_name='Cand', last_name='Idate', email='cand@example.com')
-        a.set_password('password123')
-        db.session.add(a)
-        db.session.commit()
-        db.session.refresh(a)
-        return a
-
-
-@pytest.fixture
-def candidate_auth_headers(app, candidate_account):
-    with app.app_context():
-        token = create_access_token(
-            identity=str(candidate_account.id), additional_claims={'account_type': 'candidate'}
-        )
     return {'Authorization': f'Bearer {token}'}
 
 

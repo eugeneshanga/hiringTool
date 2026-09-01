@@ -90,7 +90,7 @@ export function ProfilePage() {
         phone: phone.trim() || null,
       })
       updateUser(updated)
-      navigate('/')
+      navigate('/dashboard')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to save profile')
       setSaving(false)

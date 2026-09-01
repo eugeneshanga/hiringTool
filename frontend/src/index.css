@@ -535,6 +535,65 @@ button:disabled {
   margin-top: 0.5rem;
 }
 
+/* CareersLandingPage ('/') - org header + a list of job cards, wider than
+   the centered .public-card shell since it's a browsing page, not a form. */
+.landing-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+.landing-header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.landing-logo {
+  max-height: 96px;
+  max-width: 280px;
+  object-fit: contain;
+  margin-bottom: 1rem;
+}
+
+.landing-empty {
+  text-align: center;
+}
+
+.landing-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.landing-job-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.landing-job-card:hover {
+  border-color: var(--primary);
+}
+
+.landing-job-card h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.landing-job-meta {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+}
+
+.landing-footer {
+  text-align: center;
+  margin-top: 2.5rem;
+}
+
 /* PublicApplyPage: job-details sidebar + Overview/Application tabs, wider
    than the other public pages' centered .public-card since it's a real
    two-column layout, not a single form. */

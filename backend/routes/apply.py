@@ -1,5 +1,7 @@
-"""The public, unauthenticated apply flow for candidates who never register a
-CandidateAccount (e.g. sourced from Indeed).
+"""The public, unauthenticated apply flow - candidates never get their own
+login (see ApplicationStatusPage / routes/status.py for the phone/
+confirmation-code lookup they use instead to check status and upload
+onboarding documents).
 
 Three steps:
   POST /api/apply               - create the Candidate, save their screening

@@ -27,17 +27,6 @@ export interface User {
 
 // A prospective candidate's own login — separate identity from Candidate,
 // which is the per-job application/pipeline record recruiters manage.
-export interface CandidateAccount {
-  id: number
-  first_name: string
-  last_name: string
-  name: string
-  phone: string | null
-  email: string
-  is_active: boolean
-  created_at: string
-}
-
 export interface GoogleCalendarStatus {
   connected: boolean
   google_email?: string
@@ -150,9 +139,6 @@ export interface Candidate {
   phone: string | null
   job_id: number | null
   job_title: string | null
-  // Set when this row was created by a candidate self-registering
-  // (CandidateAccount), rather than added by hand by a recruiter.
-  candidate_account_id: number | null
   stage: Stage
   status: string
   interviewer: string | null
@@ -310,6 +296,26 @@ export interface PublicScreeningQuestion {
   answer_options: string[]
 }
 
+// --- Public careers landing page (GET /, see routes/public.py) -------------
+
+export interface PublicOrganizationInfo {
+  name: string
+  has_logo: boolean
+}
+
+// A job card on the landing page's job list - deliberately smaller than
+// PublicJob (no description/highlights/screening_questions - those only
+// matter once a specific job's apply page is open).
+export interface PublicJobSummary {
+  id: number
+  title: string
+  location: string | null
+  job_type: JobType[]
+  min_salary: number | null
+  max_salary: number | null
+  salary_period: SalaryPeriod | null
+}
+
 export interface PublicSlot {
   start: string
   end: string
@@ -356,4 +362,9 @@ export interface ApplicationStatus {
   scheduled_end: string
   meeting_link: string | null
   confirmation_code: string
+  // Same shape/source as the recruiter-side checklist (Job.onboarding_items,
+  // aggregated across the job's stages) - this is how a candidate submits
+  // onboarding documents themselves, since they have no login of their own
+  // (see routes/status.py's POST /api/status/documents).
+  onboarding_documents: CandidateDocumentChecklistItem[]
 }

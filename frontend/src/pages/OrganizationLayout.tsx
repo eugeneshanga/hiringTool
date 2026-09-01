@@ -51,7 +51,7 @@ export function OrganizationLayout() {
     <div className="job-detail">
       <div className="job-detail-body">
         <aside className="job-detail-sidebar">
-          <Link to="/" className="link-button back-link">
+          <Link to="/dashboard" className="link-button back-link">
             ‹ Back
           </Link>
           <div className="org-sidebar-identity">
