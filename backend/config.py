@@ -9,7 +9,10 @@ load_dotenv(_ENV_PATH)
 
 class Config:
     # Falls back to a local SQLite file when DATABASE_URL isn't set (e.g. local
-    # dev without Postgres running). Set DATABASE_URL to point at real Postgres.
+    # dev without MariaDB running). Set DATABASE_URL to point at the real
+    # MariaDB instance in production, e.g.
+    # mysql+pymysql://user:password@localhost/dbname - PyMySQL (see
+    # requirements.txt) is the driver behind that mysql+pymysql:// scheme.
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         'DATABASE_URL', 'sqlite:///' + os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hiringtool_dev.db')
     )

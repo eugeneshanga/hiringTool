@@ -2,7 +2,7 @@ import logging
 import os
 
 import click
-from flask import Flask, request
+from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate, upgrade
@@ -25,9 +25,25 @@ from routes.status import status_bp
 
 migrate = Migrate()
 
+# <project_root>/frontend/dist - the built React app that serve_frontend()
+# below serves in production, regardless of what directory the app is
+# actually run from (Passenger, cron, a shell in backend/, etc.).
+_FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'dist')
+
 
 def create_app(config_overrides=None):
-    app = Flask(__name__)
+    # static_folder=None disables Flask's own automatic static-file route
+    # (normally registered at /static/<path:filename>, or at
+    # /<path:filename> if static_url_path='' were passed instead) -
+    # serve_frontend() below is a full replacement for it, and registering
+    # both would collide: Flask's auto route is added during Flask.__init__,
+    # so with static_url_path='' it would win the identical /<path:path>
+    # pattern over serve_frontend() for every non-empty path, meaning the
+    # SPA fallback to index.html (needed for a React Router route like
+    # /jobs/123, which isn't a real file on disk) would never fire -
+    # verified this actually happens before settling on static_folder=None
+    # instead.
+    app = Flask(__name__, static_folder=None)
     app.config.from_object(Config)
     if config_overrides:
         app.config.update(config_overrides)
@@ -81,6 +97,24 @@ def create_app(config_overrides=None):
     @app.route('/api/health', methods=['GET'])
     def health_check():
         return {"status": "ok"}, 200
+
+    # Serves the built frontend (frontend/dist, via _FRONTEND_DIST above) so
+    # one process can serve both the API and the SPA under the same domain -
+    # needed for HostPinnacle's Passenger-based Python App hosting, which
+    # only exposes one process/port per app. Only ever reached for non-/api
+    # paths - every blueprint above already owns everything under /api, and
+    # Flask matches the most specific rule first, so this catch-all can't
+    # shadow them. Serves a real built asset (e.g. /assets/index-a1b2c3.js)
+    # directly when it exists on disk; falls back to index.html for
+    # everything else (e.g. /jobs/123) so React Router can handle
+    # client-side routes that aren't real files.
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_frontend(path):
+        target = os.path.join(_FRONTEND_DIST, path)
+        if path and os.path.isfile(target):
+            return send_from_directory(_FRONTEND_DIST, path)
+        return send_from_directory(_FRONTEND_DIST, 'index.html')
 
     # Werkzeug enforces MAX_CONTENT_LENGTH (config.py, 15MB - applies to
     # every upload app-wide: resumes, onboarding documents, org logo/banner)
