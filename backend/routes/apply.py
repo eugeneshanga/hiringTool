@@ -44,6 +44,7 @@ that treatment - the token itself is the secret (only someone holding the
 emailed link reaches them), so honest 404/410/409s are fine there.
 """
 import json
+import os
 from datetime import datetime, timedelta
 
 import dns.resolver
@@ -132,6 +133,12 @@ HONEYPOT_FIELD = 'website'
 # _email_domain_has_mx) rather than block on a slow answer.
 MX_LOOKUP_TIMEOUT_SECONDS = 2.0
 
+# Enforced explicitly here rather than relying on config.py's
+# MAX_CONTENT_LENGTH, which now has to be large enough to admit interview
+# recordings (see routes/candidates.py) - a resume specifically should
+# still be rejected well before that.
+MAX_RESUME_SIZE_BYTES = 15 * 1024 * 1024  # 15MB
+
 
 def _generic_success_response():
     """The response for POST /api/apply on every non-error path - honeypot
@@ -210,8 +217,9 @@ def _is_qualifying_answer(question, answer_text):
 @limiter.limit("1 per day", key_func=_email_job_rate_limit_key)
 def apply():
     # multipart/form-data, not JSON - request.form for text fields,
-    # request.files for the resume. MAX_CONTENT_LENGTH (config.py) already
-    # caps upload size at the Werkzeug level before this view even runs.
+    # request.files for the resume. See MAX_RESUME_SIZE_BYTES below for size
+    # enforcement - config.py's MAX_CONTENT_LENGTH is too high a ceiling to
+    # rely on alone now that it also has to admit interview recordings.
     form = request.form
 
     # Honeypot: a real person never sees or fills this field, so any
@@ -240,6 +248,12 @@ def apply():
         return jsonify({"error": "a valid email is required"}), 400
     if not resume or not resume.filename:
         return jsonify({"error": "a resume is required"}), 400
+    resume.stream.seek(0, os.SEEK_END)
+    resume_size = resume.stream.tell()
+    resume.stream.seek(0)
+    if resume_size > MAX_RESUME_SIZE_BYTES:
+        max_mb = MAX_RESUME_SIZE_BYTES // (1024 * 1024)
+        return jsonify({"error": f"that file is too large - please upload something under {max_mb}MB"}), 400
     if work_authorized is None or requires_visa_sponsorship is None:
         return jsonify({"error": "please answer both work-authorization questions"}), 400
 

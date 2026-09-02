@@ -183,6 +183,23 @@ export const api = {
   downloadAllDocuments: (candidateId: number) =>
     requestBlob(`/api/candidates/${candidateId}/documents/download-all`),
 
+  uploadRecording: (candidateId: number, templateId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return requestForm<CandidateDetail>(
+      `/api/candidates/${candidateId}/stages/${templateId}/recording`,
+      form,
+    )
+  },
+  // A plain <video src>, not a fetch - the token has to travel as a query
+  // param rather than an Authorization header (same reason as
+  // microsoftCalendarConnectUrl above). send_file's Range support is what
+  // lets the <video> element seek without downloading the whole file first.
+  recordingUrl: (candidateId: number, templateId: number) =>
+    `${BASE_URL}/api/candidates/${candidateId}/stages/${templateId}/recording?jwt=${encodeURIComponent(getToken() ?? '')}`,
+  deleteRecording: (candidateId: number, templateId: number) =>
+    request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}/recording`, { method: 'DELETE' }),
+
   updateScreeningAnswers: (
     candidateId: number,
     answers: { question_id: number; answer_text: string }[],

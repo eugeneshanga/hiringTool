@@ -592,6 +592,8 @@ class Candidate(db.Model):
                                 "score_relevant_experience": None,
                                 "cancellation_reason": None,
                                 "prompt_reschedule": None,
+                                "has_recording": False,
+                                "recording_filename": None,
                             }
                         ),
                     }
@@ -646,6 +648,14 @@ class CandidateStageProgress(db.Model):
     # recruiter's stated intent isn't lost.
     cancellation_reason = db.Column(db.Text)
     prompt_reschedule = db.Column(db.Boolean)
+    # The uploaded recording of this stage's interview (see
+    # routes/candidates.py's upload_recording/download_recording) - stored
+    # the same way as Candidate.resume_stored_filename (file_storage.py, on
+    # disk under UPLOAD_FOLDER, UUID-prefixed). One per (candidate, stage),
+    # same as the rest of this row - a candidate with two virtual-interview
+    # stages gets two independent recordings.
+    recording_original_filename = db.Column(db.String(255))
+    recording_stored_filename = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     VALID_STATUSES = ('Upcoming', 'Completed', 'Cancelled', 'No show')
@@ -670,6 +680,8 @@ class CandidateStageProgress(db.Model):
             "score_relevant_experience": self.score_relevant_experience,
             "cancellation_reason": self.cancellation_reason,
             "prompt_reschedule": self.prompt_reschedule,
+            "has_recording": self.recording_stored_filename is not None,
+            "recording_filename": self.recording_original_filename,
         }
 
 

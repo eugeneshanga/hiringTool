@@ -1717,9 +1717,29 @@ button:disabled {
   border-radius: 10px;
   min-height: 280px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.6rem;
   color: var(--text-subtle);
+}
+
+.video-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.video-panel video {
+  width: 100%;
+  max-height: 280px;
+  border-radius: 10px;
+  background: #000;
+}
+
+.video-panel-actions {
+  display: flex;
+  gap: 1rem;
 }
 
 .interview-review-fields {

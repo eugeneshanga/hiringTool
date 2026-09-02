@@ -26,7 +26,12 @@ class Config:
     UPLOAD_FOLDER = os.environ.get(
         'UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
     )
-    MAX_CONTENT_LENGTH = 15 * 1024 * 1024  # 15MB per upload
+    # Bounds every upload in the app (resumes, onboarding documents, org
+    # logo/banner, interview recordings). Sized for the largest of these -
+    # interview recordings (see routes/candidates.py's MAX_RECORDING_SIZE_BYTES,
+    # which should stay <= this) - everything else has its own, much smaller
+    # cap enforced in its own route on top of this.
+    MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500MB per upload
 
     # Microsoft/Outlook Calendar OAuth (see database.env), via an Entra ID
     # (Azure AD) app registration - Client ID/Secret from that app's

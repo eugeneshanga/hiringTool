@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, ApiError } from '../../api/client'
 import { Modal } from '../../components/Modal'
 import { useSavedFlash } from '../../hooks/useSavedFlash'
@@ -92,6 +92,8 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
   const [promptReschedule, setPromptReschedule] = useState(true)
   const [cancellationReason, setCancellationReason] = useState('')
   const [cancelling, setCancelling] = useState(false)
+
+  const [uploadingRecording, setUploadingRecording] = useState(false)
 
   const activeStage: CandidateStage | null =
     candidate.stages.find((s) => s.meeting_stage_template_id === activeTemplateId) ?? null
@@ -187,6 +189,30 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
     window.open(`mailto:${candidate.email}`)
   }
 
+  async function handleRecordingUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || activeTemplateId == null) return
+    setUploadingRecording(true)
+    try {
+      onCandidateChange(await api.uploadRecording(candidate.id, activeTemplateId, file))
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : 'Failed to upload recording')
+    } finally {
+      setUploadingRecording(false)
+    }
+  }
+
+  async function handleRemoveRecording() {
+    if (activeTemplateId == null) return
+    if (!confirm('Remove this recording?')) return
+    try {
+      onCandidateChange(await api.deleteRecording(candidate.id, activeTemplateId))
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : 'Failed to remove recording')
+    }
+  }
+
   if (candidate.stages.length === 0) return null
 
   return (
@@ -249,7 +275,28 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
               </div>
 
               <div className="interview-review">
-                <div className="video-placeholder">Recording not available</div>
+                {activeStage.has_recording ? (
+                  <div className="video-panel">
+                    <video key={activeTemplateId} controls src={api.recordingUrl(candidate.id, activeStage.meeting_stage_template_id)} />
+                    <div className="video-panel-actions">
+                      <label className="link-button">
+                        {uploadingRecording ? 'Uploading…' : 'Replace recording'}
+                        <input type="file" hidden accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v" onChange={handleRecordingUpload} disabled={uploadingRecording} />
+                      </label>
+                      <button type="button" className="link-button danger" onClick={handleRemoveRecording}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="video-placeholder">
+                    <span>{uploadingRecording ? 'Uploading…' : 'Recording not available'}</span>
+                    <label className="link-button">
+                      Upload recording
+                      <input type="file" hidden accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v" onChange={handleRecordingUpload} disabled={uploadingRecording} />
+                    </label>
+                  </div>
+                )}
                 <div className="interview-review-fields">
                   <label>
                     Status

@@ -1,4 +1,5 @@
 import io
+import os
 import zipfile
 
 from flask import Blueprint, jsonify, request, send_file
@@ -21,6 +22,39 @@ from models import (
 )
 
 candidates_bp = Blueprint('candidates', __name__)
+
+# Interview recordings (see upload_recording/download_recording below) -
+# whatever a recruiter's meeting software (RingCentral, etc.) exports.
+# Recruiter-authenticated only (unlike routes/status.py's public upload),
+# so this skips that route's magic-byte content sniffing - extension +
+# size is enough of a bar for an internal, already-logged-in user.
+ALLOWED_RECORDING_EXTENSIONS = {'.mp4', '.mov', '.webm', '.m4v'}
+MAX_RECORDING_SIZE_BYTES = 500 * 1024 * 1024  # 500MB - see config.py's MAX_CONTENT_LENGTH,
+# which must be at least this large or Flask rejects the upload before this
+# route ever sees it.
+
+# Resumes and onboarding documents are much smaller than that, and need
+# their own explicit caps now that MAX_CONTENT_LENGTH is sized for
+# recordings instead - it's too high a ceiling to rely on alone for these
+# (see routes/apply.py's identical MAX_RESUME_SIZE_BYTES, for the public
+# apply-form equivalent of upload_resume below, and routes/status.py's
+# MAX_UPLOAD_SIZE_BYTES for the candidate-facing equivalent of
+# upload_document).
+MAX_RESUME_SIZE_BYTES = 15 * 1024 * 1024  # 15MB
+MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
+
+
+def _reject_if_too_large(file, max_size_bytes):
+    """Returns a (message, 400) tuple if `file` exceeds max_size_bytes, else
+    None. Shared by upload_resume/upload_document/upload_recording below -
+    each just supplies its own cap."""
+    file.stream.seek(0, os.SEEK_END)
+    size = file.stream.tell()
+    file.stream.seek(0)
+    if size > max_size_bytes:
+        max_mb = max_size_bytes // (1024 * 1024)
+        return jsonify({"error": f"that file is too large - please upload something under {max_mb}MB"}), 400
+    return None
 
 
 @candidates_bp.route('/api/candidates', methods=['GET'])
@@ -140,6 +174,9 @@ def upload_resume(candidate_id):
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
+    too_large = _reject_if_too_large(file, MAX_RESUME_SIZE_BYTES)
+    if too_large:
+        return too_large
 
     if candidate.resume_stored_filename:
         delete_candidate_file(candidate.id, candidate.resume_stored_filename)
@@ -201,6 +238,9 @@ def upload_document(candidate_id, item_id):
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
+    too_large = _reject_if_too_large(file, MAX_DOCUMENT_SIZE_BYTES)
+    if too_large:
+        return too_large
 
     existing = CandidateDocument.query.filter_by(
         candidate_id=candidate.id, onboarding_item_id=item.id
@@ -340,3 +380,81 @@ def update_stage_progress(candidate_id, template_id):
 
     db.session.commit()
     return jsonify(candidate.to_detail_dict()), 200
+
+
+# --- Interview recording -------------------------------------------------------
+
+@candidates_bp.route(
+    '/api/candidates/<int:candidate_id>/stages/<int:template_id>/recording', methods=['POST']
+)
+@jwt_required()
+def upload_recording(candidate_id, template_id):
+    candidate = Candidate.query.get_or_404(candidate_id)
+    template = MeetingStageTemplate.query.get_or_404(template_id)
+    if candidate.job_id != template.job_id:
+        return jsonify({"error": "meeting stage does not belong to this candidate's job"}), 400
+
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({"error": "file is required"}), 400
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_RECORDING_EXTENSIONS:
+        return jsonify({"error": "only MP4, MOV, WEBM, and M4V files are accepted"}), 400
+    too_large = _reject_if_too_large(file, MAX_RECORDING_SIZE_BYTES)
+    if too_large:
+        return too_large
+
+    progress = CandidateStageProgress.query.filter_by(
+        candidate_id=candidate.id, meeting_stage_template_id=template.id
+    ).first()
+    if not progress:
+        progress = CandidateStageProgress(candidate_id=candidate.id, meeting_stage_template_id=template.id)
+        db.session.add(progress)
+
+    if progress.recording_stored_filename:
+        delete_candidate_file(candidate.id, progress.recording_stored_filename)
+
+    original_filename, stored_filename = save_candidate_file(candidate.id, file)
+    progress.recording_original_filename = original_filename
+    progress.recording_stored_filename = stored_filename
+    db.session.commit()
+    return jsonify(candidate.to_detail_dict()), 200
+
+
+@candidates_bp.route(
+    '/api/candidates/<int:candidate_id>/stages/<int:template_id>/recording', methods=['GET']
+)
+@jwt_required(locations=['headers', 'query_string'])
+def download_recording(candidate_id, template_id):
+    """Locations includes query_string (like calendar_auth.py's
+    microsoft_connect) since this is loaded as a plain <video src="...">, not
+    fetched via JS - there's no way to attach an Authorization header to
+    that, so the frontend passes the token as ?jwt=... instead (see
+    api.recordingUrl). send_file's default conditional=True serves Range
+    requests, which is what lets the browser seek within the video without
+    downloading the whole file first."""
+    progress = CandidateStageProgress.query.filter_by(
+        candidate_id=candidate_id, meeting_stage_template_id=template_id
+    ).first()
+    if not progress or not progress.recording_stored_filename:
+        return jsonify({"error": "no recording uploaded"}), 404
+    return send_file(candidate_file_path(candidate_id, progress.recording_stored_filename))
+
+
+@candidates_bp.route(
+    '/api/candidates/<int:candidate_id>/stages/<int:template_id>/recording', methods=['DELETE']
+)
+@jwt_required()
+def delete_recording(candidate_id, template_id):
+    progress = CandidateStageProgress.query.filter_by(
+        candidate_id=candidate_id, meeting_stage_template_id=template_id
+    ).first()
+    if not progress or not progress.recording_stored_filename:
+        return jsonify({"error": "no recording uploaded"}), 404
+
+    delete_candidate_file(candidate_id, progress.recording_stored_filename)
+    progress.recording_original_filename = None
+    progress.recording_stored_filename = None
+    db.session.commit()
+    return jsonify(Candidate.query.get(candidate_id).to_detail_dict()), 200

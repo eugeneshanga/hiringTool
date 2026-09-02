@@ -222,6 +222,8 @@ export interface CandidateStage {
   // CandidateStageProgress in models.py).
   cancellation_reason: string | null
   prompt_reschedule: boolean | null
+  has_recording: boolean
+  recording_filename: string | null
 }
 
 export interface CandidateDocumentSubmission {
