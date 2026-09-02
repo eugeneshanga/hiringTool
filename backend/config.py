@@ -28,14 +28,21 @@ class Config:
     )
     MAX_CONTENT_LENGTH = 15 * 1024 * 1024  # 15MB per upload
 
-    # Google Calendar OAuth (see database.env). Left unset in Config's fallback
-    # rather than raising here so the app still boots (and the rest of the
-    # test suite still runs) in environments that don't have calendar
-    # integration configured yet — routes/calendar_auth.py is what actually
-    # needs these to be present, and fails loudly there if they're missing.
-    GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
-    GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
-    GOOGLE_REDIRECT_URI = os.environ.get('GOOGLE_REDIRECT_URI')
+    # Microsoft/Outlook Calendar OAuth (see database.env), via an Entra ID
+    # (Azure AD) app registration - Client ID/Secret from that app's
+    # "Certificates & secrets" page, Redirect URI matching what's registered
+    # there. Left unset in Config's fallback rather than raising here so the
+    # app still boots (and the rest of the test suite still runs) in
+    # environments that don't have calendar integration configured yet —
+    # routes/calendar_auth.py is what actually needs these to be present,
+    # and fails loudly there if they're missing.
+    MICROSOFT_CLIENT_ID = os.environ.get('MICROSOFT_CLIENT_ID')
+    MICROSOFT_CLIENT_SECRET = os.environ.get('MICROSOFT_CLIENT_SECRET')
+    MICROSOFT_REDIRECT_URI = os.environ.get('MICROSOFT_REDIRECT_URI')
+    # 'common' accepts both work/school and personal Microsoft accounts -
+    # narrow this to 'organizations' (work/school only) or a specific
+    # tenant ID if the company wants to lock out personal accounts.
+    MICROSOFT_TENANT = os.environ.get('MICROSOFT_TENANT', 'common')
     CALENDAR_FRONTEND_REDIRECT_URL = os.environ.get('CALENDAR_FRONTEND_REDIRECT_URL', 'http://localhost:5173/profile')
 
     # Fernet key encrypting CalendarConnection.refresh_token at rest.
@@ -45,7 +52,7 @@ class Config:
     # allowed days) used to live here as env-var-only settings. It's now
     # editable from the Organization Settings page instead - see
     # Organization.scheduling_timezone etc. in models.py and
-    # google_calendar.get_free_slots, which reads from there.
+    # microsoft_calendar.get_free_slots, which reads from there.
 
     # Where the frontend lives, for building links this backend emails out
     # (e.g. the public apply/schedule link - see routes/apply.py and
@@ -63,7 +70,7 @@ class Config:
     # dashboard (Servers -> your server -> API Tokens), and the From address
     # that server's Sender Signature (or a verified sending domain) was set
     # up for - Postmark rejects a send whose From isn't verified on that
-    # server. Left unset in Config's fallback, same as the Google Calendar
+    # server. Left unset in Config's fallback, same as the Microsoft Calendar
     # vars above - PostmarkEmailProvider is what fails loudly if these are
     # missing while actually needed, not app startup.
     POSTMARK_SERVER_TOKEN = os.environ.get('POSTMARK_SERVER_TOKEN')

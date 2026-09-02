@@ -6,7 +6,6 @@ import type {
   CandidateDetail,
   CandidateDocumentChecklistItem,
   CandidateDocumentSubmission,
-  GoogleCalendarStatus,
   Interview,
   Interviewer,
   Job,
@@ -15,6 +14,7 @@ import type {
   OnboardingItemType,
   ScreeningQuestion,
   MeetingStageTemplate,
+  MicrosoftCalendarStatus,
   StageProgressStatus,
   User,
   UserRole,
@@ -69,18 +69,20 @@ export const api = {
     }),
 
   me: () => request<User>('/api/auth/me'),
-  updateProfile: (data: { first_name?: string; last_name?: string; phone?: string | null }) =>
+  updateProfile: (
+    data: { first_name?: string; last_name?: string; phone?: string | null; personal_meeting_link?: string | null },
+  ) =>
     request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
-  // Google Calendar connect is a real top-level navigation (Google's own
-  // redirect back to /callback only works that way), not a fetch - the
+  // Microsoft Calendar connect is a real top-level navigation (Microsoft's
+  // own redirect back to /callback only works that way), not a fetch - the
   // frontend just needs the fully-formed URL, token included as a query
   // param since a page navigation carries no Authorization header. See
-  // calendar_auth.py's google_connect() docstring.
-  googleCalendarConnectUrl: () =>
-    `${BASE_URL}/api/auth/google/connect?jwt=${encodeURIComponent(getToken() ?? '')}`,
-  getGoogleCalendarStatus: () => request<GoogleCalendarStatus>('/api/auth/google/status'),
-  disconnectGoogleCalendar: () => request<void>('/api/auth/google/disconnect', { method: 'DELETE' }),
+  // calendar_auth.py's microsoft_connect() docstring.
+  microsoftCalendarConnectUrl: () =>
+    `${BASE_URL}/api/auth/microsoft/connect?jwt=${encodeURIComponent(getToken() ?? '')}`,
+  getMicrosoftCalendarStatus: () => request<MicrosoftCalendarStatus>('/api/auth/microsoft/status'),
+  disconnectMicrosoftCalendar: () => request<void>('/api/auth/microsoft/disconnect', { method: 'DELETE' }),
 
   listJobs: (params?: { status?: string; search?: string }) => {
     const qs = new URLSearchParams()

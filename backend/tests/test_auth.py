@@ -17,3 +17,29 @@ def test_me_returns_current_user(client, auth_headers, user):
     resp = client.get('/api/auth/me', headers=auth_headers)
     assert resp.status_code == 200
     assert resp.get_json()['email'] == user.email
+
+
+def test_update_me_sets_personal_meeting_link(client, auth_headers):
+    resp = client.patch(
+        '/api/auth/me', headers=auth_headers,
+        json={'personal_meeting_link': 'https://v.ringcentral.com/join/199431569'},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()['personal_meeting_link'] == 'https://v.ringcentral.com/join/199431569'
+
+
+def test_update_me_rejects_a_link_without_http_scheme(client, auth_headers):
+    resp = client.patch(
+        '/api/auth/me', headers=auth_headers, json={'personal_meeting_link': 'v.ringcentral.com/join/199431569'},
+    )
+    assert resp.status_code == 400
+
+
+def test_update_me_clears_personal_meeting_link_with_an_empty_string(client, auth_headers):
+    client.patch(
+        '/api/auth/me', headers=auth_headers,
+        json={'personal_meeting_link': 'https://v.ringcentral.com/join/199431569'},
+    )
+    resp = client.patch('/api/auth/me', headers=auth_headers, json={'personal_meeting_link': ''})
+    assert resp.status_code == 200
+    assert resp.get_json()['personal_meeting_link'] is None

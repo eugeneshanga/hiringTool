@@ -117,7 +117,7 @@ function formatHourLabel(hour: number) {
 
 /** The "Organization" tab: editable org name, logo/scheduling-page banner
  * branding, and the working-hours window/days the public apply flow's
- * scheduler offers candidates (see google_calendar.get_free_slots, which
+ * scheduler offers candidates (see microsoft_calendar.get_free_slots, which
  * reads these same fields). */
 export function OrganizationSettingsPage() {
   usePageTitle('Organization - HiringTool')

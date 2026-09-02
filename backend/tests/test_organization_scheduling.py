@@ -1,5 +1,5 @@
 """PATCH /api/organization's scheduling_* fields - the working-hours window/
-timezone/allowed days google_calendar.get_free_slots reads (see
+timezone/allowed days microsoft_calendar.get_free_slots reads (see
 test_calendar_availability.py for that side). Editing is admin-only, same as
 the org name/logo/banner - see admin_headers/auth_headers in conftest.py.
 """

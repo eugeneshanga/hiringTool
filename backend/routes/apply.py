@@ -54,7 +54,7 @@ from dateutils import parse_datetime
 from email_sender import is_plausible_email, send_confirmation_email, send_schedule_interview_email
 from extensions import limiter
 from file_storage import save_candidate_file
-from google_calendar import (
+from microsoft_calendar import (
     CalendarNotConnectedError,
     CalendarTokenError,
     create_event,
@@ -378,10 +378,10 @@ def _scheduling_stage_for(job):
 def _available_slots_for_stage(stage):
     """(start, end) tuples open for booking against `stage`, or [] if the
     stage can't be scheduled against yet (no interviewer assigned, no
-    duration set, interviewer hasn't connected a calendar) or Google's API
-    is unreachable right now - a public candidate-facing page shows "no
-    slots" rather than a 500 in every one of those cases; see
-    google_calendar.get_free_slots."""
+    duration set, interviewer hasn't connected a calendar) or Microsoft
+    Graph is unreachable right now - a public candidate-facing page shows
+    "no slots" rather than a 500 in every one of those cases; see
+    microsoft_calendar.get_free_slots."""
     if not stage or not stage.interviewer_user_id or not stage.duration_minutes:
         return []
     interviewer = User.query.get(stage.interviewer_user_id)
@@ -498,15 +498,21 @@ def submit_application(token):
     if (slot_start, slot_end) not in current_slots:
         return jsonify({"error": "that time is no longer available - please pick another"}), 409
 
+    # The interviewer's own static RingCentral link, not one generated
+    # per-event by the calendar provider - see microsoft_calendar.py's
+    # module docstring. None if they haven't set one on their Profile yet.
+    meeting_link = interviewer.personal_meeting_link
+
     # Create the real calendar event before writing anything to our own DB -
     # if this fails, nothing below has happened yet, so there's nothing here
     # to roll back.
     try:
-        google_event_id, meeting_link = create_event(
+        calendar_event_id = create_event(
             interviewer,
             summary=f"{stage.stage_name} - {candidate.name}",
             description=f"{job.title} - {stage.stage_name} interview with {candidate.name} ({candidate.email})",
             start=slot_start, end=slot_end, attendee_email=candidate.email,
+            meeting_link=meeting_link,
         )
     except Exception:
         current_app.logger.exception("Failed to create calendar event for candidate %s", candidate.id)
@@ -524,7 +530,7 @@ def submit_application(token):
             scheduled_end=slot_end,
             confirmation_code=confirmation_code,
             meeting_link=meeting_link,
-            google_event_id=google_event_id,
+            calendar_event_id=calendar_event_id,
         )
         interview.candidates.append(candidate)
         db.session.add(interview)
@@ -544,12 +550,12 @@ def submit_application(token):
         db.session.rollback()
         current_app.logger.exception(
             "Failed to persist booking after creating calendar event %s for candidate %s - "
-            "attempting to delete the orphaned event", google_event_id, candidate.id,
+            "attempting to delete the orphaned event", calendar_event_id, candidate.id,
         )
         try:
-            delete_event(interviewer, google_event_id)
+            delete_event(interviewer, calendar_event_id)
         except Exception:
-            current_app.logger.exception("Also failed to clean up orphaned calendar event %s", google_event_id)
+            current_app.logger.exception("Also failed to clean up orphaned calendar event %s", calendar_event_id)
         return jsonify({"error": "something went wrong while booking - please try again"}), 500
 
     status_url = f"{current_app.config['FRONTEND_BASE_URL']}/status?code={confirmation_code}"

@@ -34,7 +34,7 @@ def _book(app, job, *, phone='555-123-4567', confirmation_code='ABC234XYZ', sche
             job_id=job.id, stage_name='Virtual interview', meeting_type='Interview',
             scheduled_start=scheduled_start, scheduled_end=scheduled_start + timedelta(minutes=20),
             confirmation_code=(confirmation_code if public else None),
-            meeting_link='https://meet.google.com/abc-defg-hij',
+            meeting_link='https://v.ringcentral.com/join/199431569',
         )
         interview.candidates.append(candidate)
         db.session.add(interview)
@@ -57,7 +57,7 @@ def test_lookup_by_code_returns_booking_details(app, client, job):
     assert data['candidate_name'] == 'Jane Applicant'
     assert data['job_title'] == job.title
     assert data['stage_name'] == 'Virtual interview'
-    assert data['meeting_link'] == 'https://meet.google.com/abc-defg-hij'
+    assert data['meeting_link'] == 'https://v.ringcentral.com/join/199431569'
     assert data['confirmation_code'] == 'ABC234XYZ'
 
 

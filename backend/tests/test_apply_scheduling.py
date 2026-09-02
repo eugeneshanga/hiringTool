@@ -2,9 +2,9 @@
 page and the atomic booking step. Screening questions are answered earlier,
 as part of POST /api/apply itself (see test_apply.py) - a token is only ever
 issued to a candidate whose answers already qualified them, so nothing here
-deals with screening questions at all. Google Calendar itself is always
+deals with screening questions at all. Microsoft Calendar itself is always
 mocked at the routes.apply level (get_free_slots/create_event/delete_event)
-- see test_calendar_availability.py for coverage of google_calendar.py's own
+- see test_calendar_availability.py for coverage of microsoft_calendar.py's own
 logic against those same seams.
 """
 from datetime import datetime, timedelta
@@ -12,13 +12,14 @@ from datetime import datetime, timedelta
 import pytest
 
 import routes.apply as apply_module
-from google_calendar import CalendarNotConnectedError, encrypt_token
+from microsoft_calendar import CalendarNotConnectedError, encrypt_token
 from models import (
     Candidate,
     CandidateStageProgress,
     CalendarConnection,
     Interview,
     MeetingStageTemplate,
+    User,
     db,
     iso_utc,
 )
@@ -26,16 +27,22 @@ from models import (
 FAR_FUTURE = datetime(2035, 1, 1, 9, 0)
 
 
+RINGCENTRAL_LINK = 'https://v.ringcentral.com/join/199431569'
+
+
 @pytest.fixture
 def schedulable_stage(app, meeting_stage, user):
-    """meeting_stage (from conftest) with an interviewer assigned and that
-    interviewer's calendar connected - the state _scheduling_stage_for/
+    """meeting_stage (from conftest) with an interviewer assigned, that
+    interviewer's calendar connected, and their personal (RingCentral)
+    meeting link set - the state _scheduling_stage_for/
     _available_slots_for_stage need to consider a stage bookable."""
     with app.app_context():
         stage = MeetingStageTemplate.query.get(meeting_stage.id)
         stage.interviewer_user_id = user.id
+        interviewer = User.query.get(user.id)
+        interviewer.personal_meeting_link = RINGCENTRAL_LINK
         db.session.add(CalendarConnection(
-            user_id=user.id, google_email='interviewer@gmail.com',
+            user_id=user.id, account_email='interviewer@outlook.com',
             encrypted_refresh_token=encrypt_token('refresh-456'),
             access_token='valid-access-token', token_expiry=datetime.utcnow() + timedelta(minutes=30),
         ))
@@ -152,7 +159,7 @@ def test_get_application_already_scheduled_includes_the_booked_interview(
     app, client, applied_candidate, schedulable_stage, monkeypatch,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
-    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: ('google-event-9', 'https://meet.google.com/xyz'))
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-9')
 
     submit_resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
     confirmation_code = submit_resp.get_json()['confirmation_code']
@@ -163,7 +170,7 @@ def test_get_application_already_scheduled_includes_the_booked_interview(
     data = resp.get_json()
     assert data['already_scheduled'] is True
     assert data['stage_name'] == schedulable_stage.stage_name
-    assert data['meeting_link'] == 'https://meet.google.com/xyz'
+    assert data['meeting_link'] == RINGCENTRAL_LINK
     assert data['confirmation_code'] == confirmation_code
     assert data['scheduled_start'] == iso_utc(FAR_FUTURE)
 
@@ -211,7 +218,7 @@ def test_submit_503_when_calendar_event_creation_fails(app, client, applied_cand
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
 
     def _boom(*a, **k):
-        raise RuntimeError('google is down')
+        raise RuntimeError('microsoft graph is down')
 
     monkeypatch.setattr(apply_module, 'create_event', _boom)
 
@@ -227,13 +234,13 @@ def test_submit_success_books_everything_and_sends_confirmation(
     app, client, applied_candidate, schedulable_stage, monkeypatch, mock_confirmation_email,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
-    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: ('google-event-1', 'https://meet.google.com/abc-defg-hij'))
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
 
     resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
 
     assert resp.status_code == 201
     body = resp.get_json()
-    assert body['meeting_link'] == 'https://meet.google.com/abc-defg-hij'
+    assert body['meeting_link'] == RINGCENTRAL_LINK
     assert len(body['confirmation_code']) == 9
 
     with app.app_context():
@@ -241,10 +248,10 @@ def test_submit_success_books_everything_and_sends_confirmation(
         assert candidate.scheduled is True
         assert candidate.stage == 'Interview'
 
-        interview = Interview.query.filter_by(google_event_id='google-event-1').first()
+        interview = Interview.query.filter_by(calendar_event_id='ms-event-1').first()
         assert interview is not None
         assert interview.confirmation_code == body['confirmation_code']
-        assert interview.meeting_link == 'https://meet.google.com/abc-defg-hij'
+        assert interview.meeting_link == RINGCENTRAL_LINK
         assert candidate in interview.candidates
 
         progress = CandidateStageProgress.query.filter_by(
@@ -262,7 +269,7 @@ def test_submit_db_failure_after_booking_cleans_up_the_calendar_event(
     app, client, applied_candidate, schedulable_stage, monkeypatch,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
-    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: ('google-event-2', 'https://meet.google.com/xyz'))
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-2')
 
     deleted = []
     monkeypatch.setattr(apply_module, 'delete_event', lambda user, event_id: deleted.append(event_id))
@@ -275,4 +282,4 @@ def test_submit_db_failure_after_booking_cleans_up_the_calendar_event(
     resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
 
     assert resp.status_code == 500
-    assert deleted == ['google-event-2']
+    assert deleted == ['ms-event-2']
