@@ -7,8 +7,9 @@ Vite + TypeScript frontend.
 ## Stack
 
 - **Backend:** Flask, Flask-SQLAlchemy, Flask-Migrate (Alembic), Flask-JWT-Extended,
-  SQLite for local dev (falls back automatically; point `DATABASE_URL` at
-  Postgres for anything beyond that)
+  Flask-Limiter. SQLite for local dev (falls back automatically); production
+  points `DATABASE_URL` at a real MariaDB instance via PyMySQL
+  (`mysql+pymysql://...`).
 - **Frontend:** React 19, Vite, TypeScript, React Router
 
 ## Setup
@@ -71,8 +72,10 @@ pytest
 
 Tests run against an in-memory SQLite DB (see `tests/conftest.py`) and never
 touch `hiringtool_dev.db`. Coverage is deliberately concentrated on the
-trickiest logic — enroll/unenroll capacity handling, the register flow, and
-the meeting-stage-rename cascade — rather than every route.
+trickiest logic — enroll/unenroll capacity handling, the meeting-stage-rename
+cascade, Microsoft Calendar OAuth/availability/booking (mocked at the
+Graph API edge), and the onboarding-visibility/rejection-cascade rules
+around candidate stage status — rather than every route.
 
 ### Frontend
 
@@ -96,14 +99,17 @@ DirectAdmin's Git integration doesn't support this deployment's subdomain).
 
 ## Environment / config
 
-- `database.env` (repo root) — set `DATABASE_URL` here to point at Postgres.
-  Left unset, `backend/config.py` falls back to a local SQLite file
-  (`backend/hiringtool_dev.db`).
-- `database.env` also holds Google Calendar OAuth config: `GOOGLE_CLIENT_ID`,
-  `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `CALENDAR_FRONTEND_REDIRECT_URL`
-  (where the OAuth callback sends the browser back to), and
-  `CALENDAR_ENCRYPTION_KEY` (a Fernet key encrypting stored refresh tokens at
-  rest — generate one with
+- `database.env` (repo root) — set `DATABASE_URL` here to point at a real
+  MariaDB instance (`mysql+pymysql://user:password@host/dbname` — PyMySQL is
+  the driver behind that scheme). Left unset, `backend/config.py` falls back
+  to a local SQLite file (`backend/hiringtool_dev.db`).
+- `database.env` also holds Microsoft/Outlook Calendar OAuth config, from an
+  Entra ID (Azure AD) app registration: `MICROSOFT_CLIENT_ID`,
+  `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_REDIRECT_URI`, `MICROSOFT_TENANT`
+  (`common` by default — accepts both work/school and personal Microsoft
+  accounts), `CALENDAR_FRONTEND_REDIRECT_URL` (where the OAuth callback sends
+  the browser back to), and `CALENDAR_ENCRYPTION_KEY` (a Fernet key
+  encrypting stored refresh tokens at rest — generate one with
   `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`;
   rotating it invalidates every stored refresh token).
 - `database.env` also controls outbound email (see `backend/email_sender.py`):
@@ -127,7 +133,16 @@ defaults documented above.
 
 - **Auth (recruiter side)** — JWT login only, no self-service registration;
   every account (`admin`/`recruiter`/`interviewer`) is provisioned by an
-  admin via `flask create-user --role`.
+  admin via `flask create-user --role`. Org settings and user management are
+  admin-only (`auth_helpers.admin_required`); jobs/candidates/interviews
+  don't yet differentiate recruiter vs. interviewer — see Known gaps.
+- **Public careers site** (`/`, `routes/public.py`) — an unauthenticated
+  landing page listing every Published job (org name/logo, title, pipe-
+  separated type/location/salary, an in-place "Show Details" accordion, and
+  a "Direct Link" for pointing a job board post like Indeed straight at that
+  job's apply page), plus a persistent header carrying the org's branding
+  across every public page (`/`, `/apply/job/:id`, `/apply/schedule/:token`,
+  `/status`).
 - **Candidates never get their own login** — there's no candidate-side
   account system at all. After applying, a candidate's only touchpoint is
   the public status page (`/status`, `routes/status.py`): look up by
@@ -135,7 +150,10 @@ defaults documented above.
   (`POST /api/status/resend-code` — never reveals whether a match was
   found, only ever triggers an email), and upload onboarding documents
   against their application (`POST /api/status/documents`) — all
-  unauthenticated by design, gated only by the confirmation code.
+  unauthenticated by design, gated only by the confirmation code. The
+  onboarding checklist itself only appears once a decision's been made (see
+  the status vocabulary below) — a candidate never sees "please upload your
+  license" before anyone's decided their interview went well.
 - **Jobs** — postings with type/location/salary/highlights/description,
   status (Published/Draft/Closed), and a numbered/reorderable **meeting
   stage** list per job (e.g. a "Virtual interview" stage named "CHHA"
@@ -149,47 +167,69 @@ defaults documented above.
   **sessions** (add, delete, enroll/unenroll candidates, capacity limits). A
   header "Schedule interview" button covers the common case in one modal:
   search or add a candidate, then pick an open slot off a small calendar or
-  spin up a custom one-off time.
+  spin up a custom one-off time. A stage — interview stages always, an
+  orientation stage optionally — can also be assigned an interviewer +
+  duration to get real Microsoft Calendar availability wired into its
+  scheduling instead of (or alongside) the plain session/capacity system.
 - **Candidates** — pipeline stage (Applied → Interview → Offer → Hired /
   Rejected), search/filtering/CSV export, and a full candidate detail page:
-  contact info, resume upload, per-stage scheduling + status + notes +
-  1–5 scorecard, the fixed onboarding document checklist (upload/download,
-  incl. a zip of everything), and answers to the job's pre-screening
-  questions.
+  contact info, resume upload, per-stage scheduling + a status dropdown
+  (`Upcoming`, `Yes`, `Yes - Awaiting information`, `Yes - Information
+  received`, `No`, `Maybe`, `Hired`, `No show`, `No response`, `Needs
+  review`) + notes + 1–5 scorecard + an uploaded interview recording
+  (video, played back in place once uploaded), the onboarding document
+  checklist (upload/download, incl. a zip of everything — gated on the
+  candidate's own side per the status above), and answers to the job's
+  pre-screening questions. Setting a stage's status to `No` (or using the
+  "Cancel interview" action, which sets the same status) cascades: the
+  candidate's overall pipeline stage flips to `Rejected`, and the same
+  delayed rejection email fires as the automatic screening-based path
+  (`scheduled_jobs.send_due_rejection_emails`). Once every required
+  onboarding item for a stage has a submission, `Yes - Awaiting information`
+  advances itself to `Yes - Information received` automatically.
 - **Home / Upcoming** — scheduled interview sessions (1:1 or capacity-limited
   group sessions like an orientation), with enroll/unenroll per candidate.
   Enrolling a candidate automatically advances their stage to "Interview"
   (manual overrides on the Candidates page still work). Clicking a session
   opens its meeting stage editor.
-- **Google Calendar connection (Phase 1)** — a `User` can connect their own
-  Google Calendar (`GET /api/auth/google/connect` → Google consent → `GET
-  /api/auth/google/callback`, `DELETE /api/auth/google/disconnect`, `GET
-  /api/auth/google/status`). One connection per `User`, reusable across every
-  stage they interview for — not tied to a job or stage. Refresh tokens are
-  encrypted at rest (`CalendarConnection.encrypted_refresh_token`, Fernet);
-  `google_calendar.get_valid_access_token(user)` is the helper later phases
-  should call to get a live access token, refreshing automatically. Nothing
-  reads or writes actual calendar events yet — see Known gaps.
+- **Microsoft/Outlook Calendar connection** — a `User` can connect their own
+  Microsoft Calendar from their Profile page (`GET /api/auth/microsoft/connect`
+  → Microsoft consent → `GET /api/auth/microsoft/callback`, `DELETE
+  /api/auth/microsoft/disconnect`, `GET /api/auth/microsoft/status`). One
+  connection per `User`, reusable across every stage they interview for —
+  not tied to a job or stage. Refresh tokens are encrypted at rest
+  (`CalendarConnection.encrypted_refresh_token`, Fernet) and rotated on use
+  where Microsoft issues a new one; `microsoft_calendar.get_valid_access_token(user)`
+  is what every later step calls for a live access token, refreshing
+  automatically. `microsoft_calendar.get_free_slots` reads real availability
+  (Graph's `calendar/getSchedule`) bounded to the org's configured working
+  hours/timezone/days (Organization Settings), and booking (public apply
+  flow or a recruiter booking a stage directly from a candidate's page)
+  creates a real calendar event via Graph. The actual meeting link
+  candidates and interviewers see isn't calendar-generated, though — each
+  `User` sets their own static video-meeting link (RingCentral in practice)
+  on their Profile page, and that's what goes out in confirmation
+  emails/status pages/the calendar event's location.
 
 ## Known gaps
 
-- No role-based permission checks *within* the recruiter side yet — any
+- No role-based permission checks on jobs/candidates/interviews — any
   logged-in `User` (admin/recruiter/interviewer alike) can do anything on
-  recruiter routes. (Candidate vs. recruiter is enforced, per the Auth
-  bullet above — this gap is about the three recruiter roles not being
-  differentiated from each other.)
+  those routes. (Org settings/user management are admin-only, and
+  candidate-vs-recruiter is enforced everywhere — this gap is specifically
+  about the three recruiter roles not being differentiated from each other
+  elsewhere.)
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
-- Google Calendar integration only has the connect/disconnect plumbing so
-  far (see Features above) — no UI to connect from yet, no availability
-  windows, and nothing actually reads/writes Google Calendar events for
-  scheduling. Also undecided: whether an already-booked `Interview` should
-  be affected if the interviewer later disconnects their calendar or changes
-  their availability.
-- Resume/onboarding-document storage is local disk under `backend/uploads/`
-  — fine for one dev machine, not for a real multi-instance deployment.
-- Jobs list has no kebab/bulk actions, and there's no public job-board/embed
-  flow.
+- `CORS(app)` (app.py) has no restricted origin list, and there's no
+  enforced HTTP→HTTPS redirect - both flagged, neither acted on yet.
+- Login (`POST /api/auth/login`) has no rate limiting, unlike the public
+  apply-form/status endpoints - nothing currently slows down repeated
+  password-guessing attempts against it.
+- Resume/onboarding-document/interview-recording storage is local disk under
+  `backend/uploads/` — fine for one dev machine or single-worker deployment,
+  not for a real multi-instance one.
+- Jobs list has no kebab/bulk actions.
 - `Interview.meeting_type` and `MeetingStageTemplate.meeting_type` use two
   different, overlapping vocabularies (a mapping function bridges them when
   scheduling a session from the stage editor) — worth unifying if either one
