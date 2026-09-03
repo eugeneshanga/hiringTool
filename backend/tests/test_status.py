@@ -98,13 +98,17 @@ def _add_onboarding_item(app, meeting_stage, **overrides):
         return item
 
 
-def _complete_stage(app, candidate_id, meeting_stage):
+def _complete_stage(app, candidate_id, meeting_stage, status='Yes'):
     """Onboarding items only become visible/uploadable once their own
-    stage's CandidateStageProgress is Completed - see
-    routes/status.py's _onboarding_checklist."""
+    stage's CandidateStageProgress has a positive outcome recorded - see
+    routes/status.py's YES_STATUSES/_onboarding_checklist. Defaults to
+    plain 'Yes' (not 'Yes - Awaiting information') so tests using this
+    don't incidentally exercise the auto-advance-to-'Yes - Information
+    received' behavior - see test_upload_document_advances_status... below
+    for that."""
     with app.app_context():
         db.session.add(CandidateStageProgress(
-            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id, status='Completed',
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id, status=status,
         ))
         db.session.commit()
 
@@ -271,6 +275,99 @@ def test_upload_document_replaces_an_existing_submission(app, client, job, meeti
         docs = CandidateDocument.query.filter_by(onboarding_item_id=item.id).all()
         assert len(docs) == 1  # replaced in place, not a second row
         assert docs[0].original_filename == 'new.pdf'
+
+
+# --- status auto-advance: 'Yes - Awaiting information' -> 'Yes - Information received' ---
+
+def test_upload_document_advances_status_once_the_one_required_item_is_in(app, client, job, meeting_stage):
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
+    item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage, status='Yes - Awaiting information')
+
+    resp = client.post(
+        '/api/status/documents',
+        data={
+            'code': 'ABC234XYZ', 'onboarding_item_id': str(item.id),
+            'file': (io.BytesIO(_pdf_bytes()), 'license.pdf'),
+        },
+        content_type='multipart/form-data',
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        progress = CandidateStageProgress.query.filter_by(
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id,
+        ).first()
+        assert progress.status == 'Yes - Information received'
+
+
+def test_upload_document_does_not_advance_while_a_required_item_is_still_missing(app, client, job, meeting_stage):
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
+    item_a = _add_onboarding_item(app, meeting_stage, description='License', sort_order=0)
+    _add_onboarding_item(app, meeting_stage, description='ID', sort_order=1)  # required=True by default, left unfiled
+    _complete_stage(app, candidate_id, meeting_stage, status='Yes - Awaiting information')
+
+    resp = client.post(
+        '/api/status/documents',
+        data={
+            'code': 'ABC234XYZ', 'onboarding_item_id': str(item_a.id),
+            'file': (io.BytesIO(_pdf_bytes()), 'license.pdf'),
+        },
+        content_type='multipart/form-data',
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        progress = CandidateStageProgress.query.filter_by(
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id,
+        ).first()
+        assert progress.status == 'Yes - Awaiting information'  # unchanged - the second required item is still missing
+
+
+def test_upload_document_advances_status_ignoring_optional_items(app, client, job, meeting_stage):
+    required_item = _add_onboarding_item(app, meeting_stage, description='License', required=True, sort_order=0)
+    _add_onboarding_item(app, meeting_stage, description='Optional headshot', required=False, sort_order=1)
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
+    _complete_stage(app, candidate_id, meeting_stage, status='Yes - Awaiting information')
+
+    resp = client.post(
+        '/api/status/documents',
+        data={
+            'code': 'ABC234XYZ', 'onboarding_item_id': str(required_item.id),
+            'file': (io.BytesIO(_pdf_bytes()), 'license.pdf'),
+        },
+        content_type='multipart/form-data',
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        progress = CandidateStageProgress.query.filter_by(
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id,
+        ).first()
+        assert progress.status == 'Yes - Information received'  # the optional item doesn't block advancing
+
+
+def test_upload_document_does_not_advance_a_plain_yes_status(app, client, job, meeting_stage):
+    """Only the specific 'Yes - Awaiting information' -> 'Yes - Information
+    received' transition is automatic - plain 'Yes' is left alone."""
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
+    item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage, status='Yes')
+
+    client.post(
+        '/api/status/documents',
+        data={
+            'code': 'ABC234XYZ', 'onboarding_item_id': str(item.id),
+            'file': (io.BytesIO(_pdf_bytes()), 'license.pdf'),
+        },
+        content_type='multipart/form-data',
+    )
+
+    with app.app_context():
+        progress = CandidateStageProgress.query.filter_by(
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id,
+        ).first()
+        assert progress.status == 'Yes'
 
 
 def test_upload_document_accepts_docx(app, client, job, meeting_stage):

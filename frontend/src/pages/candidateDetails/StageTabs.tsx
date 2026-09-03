@@ -5,7 +5,19 @@ import { useSavedFlash } from '../../hooks/useSavedFlash'
 import { AvailabilityScheduleModal } from './AvailabilityScheduleModal'
 import type { CandidateDetail, CandidateStage, StageProgressStatus } from '../../api/types'
 
-const STAGE_STATUSES: StageProgressStatus[] = ['Upcoming', 'Completed', 'Cancelled', 'No show', 'Rejected']
+const STAGE_STATUSES: StageProgressStatus[] = [
+  'Upcoming', 'Yes', 'Yes - Awaiting information', 'Yes - Information received',
+  'No', 'Maybe', 'Hired', 'No show', 'No response', 'Needs review',
+]
+
+// e.g. "Yes - Awaiting information" -> "yes-awaiting-information" (see
+// index.css's .status-* classes) - collapses every run of non-alphanumeric
+// characters (spaces, the literal " - " separator) to one dash, rather than
+// a naive whitespace-only replace, which would leave the hyphen in place
+// and produce an awkward double dash.
+function statusBadgeClass(status: string) {
+  return status.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+}
 
 function formatDateTime(iso: string | null) {
   if (!iso) return null
@@ -147,7 +159,9 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
     try {
       onCandidateChange(
         await api.updateStageProgress(candidate.id, activeTemplateId, {
-          status: 'Cancelled',
+          // 'No' - same status a manual rejection uses, and cascades the
+          // same way (see routes/candidates.py's update_stage_progress).
+          status: 'No',
           prompt_reschedule: promptReschedule,
           cancellation_reason: cancellationReason.trim() || null,
         }),
@@ -251,7 +265,7 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
             {isOrientation && !activeStage.scheduled_at ? (
               <span className="status-badge">No status</span>
             ) : (
-              <span className={`status-badge status-${activeStage.status.replace(/\s+/g, '-').toLowerCase()}`}>
+              <span className={`status-badge status-${statusBadgeClass(activeStage.status)}`}>
                 {activeStage.status}
               </span>
             )}

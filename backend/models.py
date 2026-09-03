@@ -669,11 +669,30 @@ class CandidateStageProgress(db.Model):
     recording_stored_filename = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # 'Rejected' mirrors the auto-disqualification path (screening answers)
-    # for a candidate who doesn't work out at this stage - see
-    # routes/candidates.py's update_stage_progress, which cascades it to
-    # Candidate.stage/disqualified_at too, not just this row.
-    VALID_STATUSES = ('Upcoming', 'Completed', 'Cancelled', 'No show', 'Rejected')
+    # 'Upcoming' is set automatically by scheduling/rescheduling (routes/
+    # candidates.py's book_stage_slot, routes/interviews.py's
+    # enroll_candidate) - everything else here is a post-interview outcome a
+    # recruiter sets by hand (or, for the two 'Yes' sub-states, the app
+    # advances automatically - see routes/status.py's
+    # _maybe_advance_to_information_received).
+    #
+    # The three 'Yes...' values are what gates the onboarding checklist on
+    # the candidate's own status page (see routes/status.py's
+    # _onboarding_checklist) - starts at 'Yes - Awaiting information' once a
+    # recruiter records a positive outcome, then the app itself flips it to
+    # 'Yes - Information received' once every required item for this stage
+    # has a submission. Plain 'Yes' (no sub-state) also gates it, for a
+    # stage that doesn't collect onboarding documents.
+    #
+    # 'No' mirrors the auto-disqualification path (screening answers) for a
+    # candidate who doesn't work out at this stage, same as the "Cancel
+    # interview" action - see routes/candidates.py's update_stage_progress,
+    # which cascades it to Candidate.stage/disqualified_at too, not just
+    # this row.
+    VALID_STATUSES = (
+        'Upcoming', 'Yes', 'Yes - Awaiting information', 'Yes - Information received',
+        'No', 'Maybe', 'Hired', 'No show', 'No response', 'Needs review',
+    )
 
     __table_args__ = (
         db.UniqueConstraint('candidate_id', 'meeting_stage_template_id', name='uq_candidate_stage'),

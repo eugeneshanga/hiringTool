@@ -369,13 +369,14 @@ def update_stage_progress(candidate_id, template_id):
     if 'status' in data:
         progress.status = data['status']
         # Mirrors the auto-disqualification path in routes/apply.py: a
-        # candidate rejected at any one stage is rejected overall, and
+        # candidate rejected at any one stage (status 'No' - also what the
+        # "Cancel interview" action sets, see the cancellation_reason
+        # handling below) is rejected overall, and
         # scheduled_jobs.send_due_rejection_emails picks up disqualified_at
         # the same way regardless of which path set it. Only set
-        # disqualified_at the first time - re-saving 'Rejected' (or
-        # rejecting a second stage) shouldn't push back an already-running
-        # delay.
-        if data['status'] == 'Rejected':
+        # disqualified_at the first time - re-saving 'No' (or rejecting a
+        # second stage) shouldn't push back an already-running delay.
+        if data['status'] == 'No':
             candidate.stage = 'Rejected'
             if not candidate.disqualified_at:
                 candidate.disqualified_at = datetime.utcnow()

@@ -125,7 +125,17 @@ export interface Job {
   meeting_stages: MeetingStageTemplate[]
 }
 
-export type StageProgressStatus = 'Upcoming' | 'Completed' | 'Cancelled' | 'No show' | 'Rejected'
+export type StageProgressStatus =
+  | 'Upcoming'
+  | 'Yes'
+  | 'Yes - Awaiting information'
+  | 'Yes - Information received'
+  | 'No'
+  | 'Maybe'
+  | 'Hired'
+  | 'No show'
+  | 'No response'
+  | 'Needs review'
 
 // A stage-progress summary for whichever meeting stage is "current" for the
 // candidate, surfaced on the list view — the soonest upcoming one, else the

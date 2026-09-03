@@ -1685,30 +1685,46 @@ button:disabled {
   color: #2a3fc7;
 }
 
-.status-completed {
-  background: #e0f5e6;
-  color: #1a8a4a;
-}
-
 .calendar-status-connected {
   color: #1a8a4a;
   font-weight: 600;
 }
 
-.status-cancelled {
-  background: #fdecec;
-  color: var(--danger);
+/* CandidateStageProgress.VALID_STATUSES - see StageTabs.tsx's
+   statusBadgeClass for how a status turns into one of these class names. */
+.status-yes,
+.status-yes-information-received {
+  background: #e0f5e6;
+  color: #1a8a4a;
 }
 
-.status-no-show {
-  background: var(--border);
-  color: var(--text-subtle);
+.status-yes-awaiting-information {
+  background: #fff4e0;
+  color: #b5760a;
 }
 
-.status-rejected {
+.status-hired {
+  background: #e0f5e6;
+  color: #1a8a4a;
+  font-weight: 700;
+}
+
+.status-no {
   background: #fdecec;
   color: var(--danger);
   font-weight: 700;
+}
+
+.status-maybe,
+.status-needs-review {
+  background: #f1e9fc;
+  color: #7c3aed;
+}
+
+.status-no-show,
+.status-no-response {
+  background: var(--border);
+  color: var(--text-subtle);
 }
 
 .interview-review {
