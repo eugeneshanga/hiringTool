@@ -79,7 +79,7 @@ function BookingSummary({
  * (POST /api/apply/<token>/submit). The date/time picker is the same
  * month-grid-plus-day-panel calendar as the recruiter side's
  * ScheduleInterviewModal (see lib/calendarGrid.ts), just driven by live
- * Google Calendar availability instead of existing sessions. */
+ * Microsoft Calendar availability instead of existing sessions. */
 export function ScheduleApplicationPage() {
   const { token } = useParams<{ token: string }>()
 

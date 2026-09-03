@@ -1,7 +1,7 @@
 // Shared by ScheduleInterviewModal.tsx (recruiter-side "Schedule interview")
 // and publicApply/ScheduleApplicationPage.tsx (candidate-side booking) -
 // both render the same month-grid-plus-day-panel calendar, just against
-// different data (existing sessions vs. live Google Calendar availability).
+// different data (existing sessions vs. live Microsoft Calendar availability).
 
 export function pad(n: number) {
   return String(n).padStart(2, '0')

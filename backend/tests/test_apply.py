@@ -128,14 +128,15 @@ def test_requires_a_resume(client, job):
 
 
 def test_rejects_a_resume_over_the_size_cap(client, job):
-    """App-wide MAX_CONTENT_LENGTH (config.py, 15MB) - enforced by Werkzeug
-    before the view even runs, so this exercises app.py's 413 handler
-    (a JSON error, matching every other error response) rather than
-    anything in routes/apply.py itself."""
+    """routes/apply.py's own MAX_RESUME_SIZE_BYTES (15MB) - checked
+    explicitly in the view now, since config.py's MAX_CONTENT_LENGTH had to
+    be raised much higher to admit interview recordings (see
+    routes/candidates.py) and so no longer catches an oversized resume by
+    itself at the Werkzeug level."""
     oversized = io.BytesIO(b'0' * (16 * 1024 * 1024))
     resp = _post_apply(client, job_id=job.id, resume=(oversized, 'huge-resume.pdf'))
 
-    assert resp.status_code == 413
+    assert resp.status_code == 400
     assert 'too large' in resp.get_json()['error']
     with client.application.app_context():
         assert Candidate.query.filter_by(job_id=job.id).first() is None

@@ -6,7 +6,6 @@ import type {
   CandidateDetail,
   CandidateDocumentChecklistItem,
   CandidateDocumentSubmission,
-  GoogleCalendarStatus,
   Interview,
   Interviewer,
   Job,
@@ -15,6 +14,8 @@ import type {
   OnboardingItemType,
   ScreeningQuestion,
   MeetingStageTemplate,
+  MicrosoftCalendarStatus,
+  PublicSlot,
   StageProgressStatus,
   User,
   UserRole,
@@ -69,18 +70,20 @@ export const api = {
     }),
 
   me: () => request<User>('/api/auth/me'),
-  updateProfile: (data: { first_name?: string; last_name?: string; phone?: string | null }) =>
+  updateProfile: (
+    data: { first_name?: string; last_name?: string; phone?: string | null; personal_meeting_link?: string | null },
+  ) =>
     request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
 
-  // Google Calendar connect is a real top-level navigation (Google's own
-  // redirect back to /callback only works that way), not a fetch - the
+  // Microsoft Calendar connect is a real top-level navigation (Microsoft's
+  // own redirect back to /callback only works that way), not a fetch - the
   // frontend just needs the fully-formed URL, token included as a query
   // param since a page navigation carries no Authorization header. See
-  // calendar_auth.py's google_connect() docstring.
-  googleCalendarConnectUrl: () =>
-    `${BASE_URL}/api/auth/google/connect?jwt=${encodeURIComponent(getToken() ?? '')}`,
-  getGoogleCalendarStatus: () => request<GoogleCalendarStatus>('/api/auth/google/status'),
-  disconnectGoogleCalendar: () => request<void>('/api/auth/google/disconnect', { method: 'DELETE' }),
+  // calendar_auth.py's microsoft_connect() docstring.
+  microsoftCalendarConnectUrl: () =>
+    `${BASE_URL}/api/auth/microsoft/connect?jwt=${encodeURIComponent(getToken() ?? '')}`,
+  getMicrosoftCalendarStatus: () => request<MicrosoftCalendarStatus>('/api/auth/microsoft/status'),
+  disconnectMicrosoftCalendar: () => request<void>('/api/auth/microsoft/disconnect', { method: 'DELETE' }),
 
   listJobs: (params?: { status?: string; search?: string }) => {
     const qs = new URLSearchParams()
@@ -181,6 +184,23 @@ export const api = {
   downloadAllDocuments: (candidateId: number) =>
     requestBlob(`/api/candidates/${candidateId}/documents/download-all`),
 
+  uploadRecording: (candidateId: number, templateId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return requestForm<CandidateDetail>(
+      `/api/candidates/${candidateId}/stages/${templateId}/recording`,
+      form,
+    )
+  },
+  // A plain <video src>, not a fetch - the token has to travel as a query
+  // param rather than an Authorization header (same reason as
+  // microsoftCalendarConnectUrl above). send_file's Range support is what
+  // lets the <video> element seek without downloading the whole file first.
+  recordingUrl: (candidateId: number, templateId: number) =>
+    `${BASE_URL}/api/candidates/${candidateId}/stages/${templateId}/recording?jwt=${encodeURIComponent(getToken() ?? '')}`,
+  deleteRecording: (candidateId: number, templateId: number) =>
+    request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}/recording`, { method: 'DELETE' }),
+
   updateScreeningAnswers: (
     candidateId: number,
     answers: { question_id: number; answer_text: string }[],
@@ -207,6 +227,14 @@ export const api = {
   ) =>
     request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}`, {
       method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  getAvailableSlots: (candidateId: number, templateId: number) =>
+    request<{ available_slots: PublicSlot[] }>(`/api/candidates/${candidateId}/stages/${templateId}/available-slots`),
+  bookStageSlot: (candidateId: number, templateId: number, data: { slot_start: string; slot_end: string }) =>
+    request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}/book`, {
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 

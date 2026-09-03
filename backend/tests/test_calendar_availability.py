@@ -1,16 +1,18 @@
-"""google_calendar.py's availability/booking additions: slot generation,
-get_free_slots' busy/lead-time filtering, create_event's request body and
-Meet-link extraction, and delete_event. Nothing here talks to real Google
-APIs - the low-level *_request functions are monkeypatched out, the same
-way test_calendar_auth.py mocks exchange_code_for_tokens/fetch_google_email.
+"""microsoft_calendar.py's availability/booking additions: slot generation,
+get_free_slots' busy/lead-time filtering, create_event's request body
+(including embedding the interviewer's own RingCentral link as the event's
+location), and delete_event. Nothing here talks to real
+Microsoft Graph APIs - the low-level *_request functions are monkeypatched
+out, the same way test_calendar_auth.py mocks
+exchange_code_for_tokens/fetch_microsoft_email.
 """
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
-import google_calendar
-from google_calendar import CalendarNotConnectedError, encrypt_token
+import microsoft_calendar
+from microsoft_calendar import CalendarNotConnectedError, encrypt_token
 from models import CalendarConnection, Organization, db
 
 # Always well in the future relative to whenever the suite actually runs, so
@@ -22,7 +24,7 @@ FAR_FUTURE_YEAR = 2035
 def connected_user(app, user):
     with app.app_context():
         db.session.add(CalendarConnection(
-            user_id=user.id, google_email='interviewer@gmail.com',
+            user_id=user.id, account_email='interviewer@outlook.com',
             encrypted_refresh_token=encrypt_token('refresh-456'),
             access_token='valid-access-token', token_expiry=datetime.utcnow() + timedelta(minutes=30),
         ))
@@ -36,7 +38,7 @@ ALL_WEEKDAYS = set(range(7))
 
 
 def test_candidate_slot_windows_covers_working_hours_at_the_given_duration():
-    slots = google_calendar._candidate_slot_windows(
+    slots = microsoft_calendar._candidate_slot_windows(
         window_days=0, duration_minutes=60, working_hours_start=9, working_hours_end=17,
         allowed_weekdays=ALL_WEEKDAYS, tz=ZoneInfo('UTC'),
     )
@@ -49,7 +51,7 @@ def test_candidate_slot_windows_covers_working_hours_at_the_given_duration():
 
 
 def test_candidate_slot_windows_spans_multiple_days():
-    slots = google_calendar._candidate_slot_windows(
+    slots = microsoft_calendar._candidate_slot_windows(
         window_days=2, duration_minutes=480, working_hours_start=9, working_hours_end=17,
         allowed_weekdays=ALL_WEEKDAYS, tz=ZoneInfo('UTC'),
     )
@@ -60,7 +62,7 @@ def test_candidate_slot_windows_skips_disallowed_weekdays():
     # A wide enough window (14 days) to guarantee it spans every weekday at
     # least once, regardless of which day "today" happens to be when the
     # suite runs.
-    monday_only = google_calendar._candidate_slot_windows(
+    monday_only = microsoft_calendar._candidate_slot_windows(
         window_days=13, duration_minutes=480, working_hours_start=9, working_hours_end=17,
         allowed_weekdays={0}, tz=ZoneInfo('UTC'),
     )
@@ -92,10 +94,10 @@ def test_get_free_slots_uses_organization_scheduling_settings(app, connected_use
         )
         return []
 
-    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', _capture)
+    monkeypatch.setattr(microsoft_calendar, '_candidate_slot_windows', _capture)
 
     with app.app_context():
-        google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=7)
+        microsoft_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=7)
 
     assert captured == {
         'working_hours_start': 10, 'working_hours_end': 14, 'allowed_weekdays': {2}, 'tz': 'America/New_York',
@@ -112,10 +114,10 @@ def test_get_free_slots_falls_back_to_defaults_with_no_organization_row(app, con
         )
         return []
 
-    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', _capture)
+    monkeypatch.setattr(microsoft_calendar, '_candidate_slot_windows', _capture)
 
     with app.app_context():
-        google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=7)
+        microsoft_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=7)
 
     assert captured == {
         'working_hours_start': 9, 'working_hours_end': 17, 'allowed_weekdays': {0, 1, 2, 3, 4}, 'tz': 'UTC',
@@ -125,7 +127,7 @@ def test_get_free_slots_falls_back_to_defaults_with_no_organization_row(app, con
 def test_get_free_slots_raises_when_never_connected(app, user):
     with app.app_context():
         with pytest.raises(CalendarNotConnectedError):
-            google_calendar.get_free_slots(user, duration_minutes=30, window_days=1)
+            microsoft_calendar.get_free_slots(user, duration_minutes=30, window_days=1)
 
 
 def test_get_free_slots_excludes_busy_blocks(app, connected_user, monkeypatch):
@@ -134,17 +136,17 @@ def test_get_free_slots_excludes_busy_blocks(app, connected_user, monkeypatch):
         (datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30), datetime(FAR_FUTURE_YEAR, 1, 1, 10, 0)),
         (datetime(FAR_FUTURE_YEAR, 1, 1, 10, 0), datetime(FAR_FUTURE_YEAR, 1, 1, 10, 30)),
     ]
-    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', lambda *a, **k: fixed_slots)
+    monkeypatch.setattr(microsoft_calendar, '_candidate_slot_windows', lambda *a, **k: fixed_slots)
     # Busy for the middle slot only - overlaps [9:30, 10:00).
     monkeypatch.setattr(
-        google_calendar, '_freebusy_request',
-        lambda access_token, time_min, time_max: [
+        microsoft_calendar, '_get_schedule_request',
+        lambda access_token, account_email, time_min, time_max: [
             (datetime(FAR_FUTURE_YEAR, 1, 1, 9, 45), datetime(FAR_FUTURE_YEAR, 1, 1, 9, 50)),
         ],
     )
 
     with app.app_context():
-        result = google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=1)
+        result = microsoft_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=1)
 
     assert result == [fixed_slots[0], fixed_slots[2]]
 
@@ -156,61 +158,86 @@ def test_get_free_slots_excludes_slots_inside_the_lead_time_window(app, connecte
         (too_soon, too_soon + timedelta(minutes=30)),
         (plenty_of_notice, plenty_of_notice + timedelta(minutes=30)),
     ]
-    monkeypatch.setattr(google_calendar, '_candidate_slot_windows', lambda *a, **k: fixed_slots)
-    monkeypatch.setattr(google_calendar, '_freebusy_request', lambda *a, **k: [])
+    monkeypatch.setattr(microsoft_calendar, '_candidate_slot_windows', lambda *a, **k: fixed_slots)
+    monkeypatch.setattr(microsoft_calendar, '_get_schedule_request', lambda *a, **k: [])
 
     with app.app_context():
-        result = google_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=1)
+        result = microsoft_calendar.get_free_slots(connected_user, duration_minutes=30, window_days=1)
 
     assert result == [fixed_slots[1]]
 
 
 # --- create_event ---------------------------------------------------------------
 
-def test_create_event_requests_a_meet_link_and_extracts_it(app, connected_user, monkeypatch):
+RINGCENTRAL_LINK = 'https://v.ringcentral.com/join/199431569'
+
+
+def test_create_event_embeds_the_meeting_link_as_location(app, connected_user, monkeypatch):
+    """Interviews are conducted over RingCentral via the interviewer's own
+    static link (User.personal_meeting_link, passed in by the caller - see
+    routes/apply.py) - create_event itself no longer generates one (Teams/
+    Google Meet/etc), it just puts the given link on the event so it's
+    visible on the interviewer's own calendar."""
     captured = {}
 
     def _fake_request(access_token, body):
         captured['access_token'] = access_token
         captured['body'] = body
-        return {
-            'id': 'google-event-123',
-            'conferenceData': {'entryPoints': [
-                {'entryPointType': 'video', 'uri': 'https://meet.google.com/abc-defg-hij'},
-                {'entryPointType': 'phone', 'uri': 'tel:+1-555-0100'},
-            ]},
-        }
+        return {'id': 'ms-event-123'}
 
-    monkeypatch.setattr(google_calendar, '_create_calendar_event_request', _fake_request)
+    monkeypatch.setattr(microsoft_calendar, '_create_calendar_event_request', _fake_request)
 
     with app.app_context():
-        event_id, meeting_link = google_calendar.create_event(
+        event_id = microsoft_calendar.create_event(
             connected_user, summary='Interview - Jane', description='desc',
             start=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0), end=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30),
-            attendee_email='jane@example.com',
+            attendee_email='jane@example.com', meeting_link=RINGCENTRAL_LINK,
         )
 
-    assert event_id == 'google-event-123'
-    assert meeting_link == 'https://meet.google.com/abc-defg-hij'
+    assert event_id == 'ms-event-123'
     assert captured['access_token'] == 'valid-access-token'
-    assert captured['body']['conferenceData']['createRequest']['conferenceSolutionKey'] == {'type': 'hangoutsMeet'}
-    assert captured['body']['attendees'] == [{'email': 'jane@example.com'}]
+    assert captured['body']['location'] == {'displayName': RINGCENTRAL_LINK}
+    assert 'isOnlineMeeting' not in captured['body']
+    assert captured['body']['attendees'] == [{'emailAddress': {'address': 'jane@example.com'}, 'type': 'required'}]
 
 
-def test_create_event_meeting_link_is_none_without_a_video_entry_point(app, connected_user, monkeypatch):
-    monkeypatch.setattr(
-        google_calendar, '_create_calendar_event_request',
-        lambda access_token, body: {'id': 'google-event-456', 'conferenceData': {}},
-    )
+def test_create_event_omits_location_without_a_meeting_link(app, connected_user, monkeypatch):
+    """An interviewer who hasn't set their RingCentral link yet - the event
+    still gets created, just with no location."""
+    captured = {}
+
+    def _fake_request(access_token, body):
+        captured['body'] = body
+        return {'id': 'ms-event-456'}
+
+    monkeypatch.setattr(microsoft_calendar, '_create_calendar_event_request', _fake_request)
 
     with app.app_context():
-        event_id, meeting_link = google_calendar.create_event(
+        event_id = microsoft_calendar.create_event(
             connected_user, summary='Interview', description='desc',
             start=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0), end=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30),
         )
 
-    assert event_id == 'google-event-456'
-    assert meeting_link is None
+    assert event_id == 'ms-event-456'
+    assert 'location' not in captured['body']
+
+
+def test_create_event_omits_attendees_when_no_attendee_email(app, connected_user, monkeypatch):
+    captured = {}
+
+    def _fake_request(access_token, body):
+        captured['body'] = body
+        return {'id': 'ms-event-789'}
+
+    monkeypatch.setattr(microsoft_calendar, '_create_calendar_event_request', _fake_request)
+
+    with app.app_context():
+        microsoft_calendar.create_event(
+            connected_user, summary='Interview', description='desc',
+            start=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 0), end=datetime(FAR_FUTURE_YEAR, 1, 1, 9, 30),
+        )
+
+    assert 'attendees' not in captured['body']
 
 
 # --- delete_event ---------------------------------------------------------------
@@ -218,11 +245,25 @@ def test_create_event_meeting_link_is_none_without_a_video_entry_point(app, conn
 def test_delete_event_calls_the_low_level_request(app, connected_user, monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        google_calendar, '_delete_calendar_event_request',
+        microsoft_calendar, '_delete_calendar_event_request',
         lambda access_token, event_id: captured.update(access_token=access_token, event_id=event_id),
     )
 
     with app.app_context():
-        google_calendar.delete_event(connected_user, 'google-event-123')
+        microsoft_calendar.delete_event(connected_user, 'ms-event-123')
 
-    assert captured == {'access_token': 'valid-access-token', 'event_id': 'google-event-123'}
+    assert captured == {'access_token': 'valid-access-token', 'event_id': 'ms-event-123'}
+
+
+# --- _parse_graph_datetime -------------------------------------------------------
+
+def test_parse_graph_datetime_truncates_seven_digit_fractional_seconds():
+    # Graph commonly returns 7 fractional-second digits, which
+    # datetime.fromisoformat() rejects outright (it accepts at most 6).
+    parsed = microsoft_calendar._parse_graph_datetime('2035-01-01T09:00:00.1234567')
+    assert parsed == datetime(2035, 1, 1, 9, 0, 0, 123456)
+
+
+def test_parse_graph_datetime_handles_no_fractional_seconds():
+    parsed = microsoft_calendar._parse_graph_datetime('2035-01-01T09:00:00')
+    assert parsed == datetime(2035, 1, 1, 9, 0, 0)

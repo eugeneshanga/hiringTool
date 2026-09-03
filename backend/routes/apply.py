@@ -44,6 +44,7 @@ that treatment - the token itself is the secret (only someone holding the
 emailed link reaches them), so honest 404/410/409s are fine there.
 """
 import json
+import os
 from datetime import datetime, timedelta
 
 import dns.resolver
@@ -54,7 +55,7 @@ from dateutils import parse_datetime
 from email_sender import is_plausible_email, send_confirmation_email, send_schedule_interview_email
 from extensions import limiter
 from file_storage import save_candidate_file
-from google_calendar import (
+from microsoft_calendar import (
     CalendarNotConnectedError,
     CalendarTokenError,
     create_event,
@@ -131,6 +132,12 @@ HONEYPOT_FIELD = 'website'
 # not the primary defense, so it's fine for it to fail open (see
 # _email_domain_has_mx) rather than block on a slow answer.
 MX_LOOKUP_TIMEOUT_SECONDS = 2.0
+
+# Enforced explicitly here rather than relying on config.py's
+# MAX_CONTENT_LENGTH, which now has to be large enough to admit interview
+# recordings (see routes/candidates.py) - a resume specifically should
+# still be rejected well before that.
+MAX_RESUME_SIZE_BYTES = 15 * 1024 * 1024  # 15MB
 
 
 def _generic_success_response():
@@ -210,8 +217,9 @@ def _is_qualifying_answer(question, answer_text):
 @limiter.limit("1 per day", key_func=_email_job_rate_limit_key)
 def apply():
     # multipart/form-data, not JSON - request.form for text fields,
-    # request.files for the resume. MAX_CONTENT_LENGTH (config.py) already
-    # caps upload size at the Werkzeug level before this view even runs.
+    # request.files for the resume. See MAX_RESUME_SIZE_BYTES below for size
+    # enforcement - config.py's MAX_CONTENT_LENGTH is too high a ceiling to
+    # rely on alone now that it also has to admit interview recordings.
     form = request.form
 
     # Honeypot: a real person never sees or fills this field, so any
@@ -240,6 +248,12 @@ def apply():
         return jsonify({"error": "a valid email is required"}), 400
     if not resume or not resume.filename:
         return jsonify({"error": "a resume is required"}), 400
+    resume.stream.seek(0, os.SEEK_END)
+    resume_size = resume.stream.tell()
+    resume.stream.seek(0)
+    if resume_size > MAX_RESUME_SIZE_BYTES:
+        max_mb = MAX_RESUME_SIZE_BYTES // (1024 * 1024)
+        return jsonify({"error": f"that file is too large - please upload something under {max_mb}MB"}), 400
     if work_authorized is None or requires_visa_sponsorship is None:
         return jsonify({"error": "please answer both work-authorization questions"}), 400
 
@@ -378,10 +392,10 @@ def _scheduling_stage_for(job):
 def _available_slots_for_stage(stage):
     """(start, end) tuples open for booking against `stage`, or [] if the
     stage can't be scheduled against yet (no interviewer assigned, no
-    duration set, interviewer hasn't connected a calendar) or Google's API
-    is unreachable right now - a public candidate-facing page shows "no
-    slots" rather than a 500 in every one of those cases; see
-    google_calendar.get_free_slots."""
+    duration set, interviewer hasn't connected a calendar) or Microsoft
+    Graph is unreachable right now - a public candidate-facing page shows
+    "no slots" rather than a 500 in every one of those cases; see
+    microsoft_calendar.get_free_slots."""
     if not stage or not stage.interviewer_user_id or not stage.duration_minutes:
         return []
     interviewer = User.query.get(stage.interviewer_user_id)
@@ -498,15 +512,21 @@ def submit_application(token):
     if (slot_start, slot_end) not in current_slots:
         return jsonify({"error": "that time is no longer available - please pick another"}), 409
 
+    # The interviewer's own static RingCentral link, not one generated
+    # per-event by the calendar provider - see microsoft_calendar.py's
+    # module docstring. None if they haven't set one on their Profile yet.
+    meeting_link = interviewer.personal_meeting_link
+
     # Create the real calendar event before writing anything to our own DB -
     # if this fails, nothing below has happened yet, so there's nothing here
     # to roll back.
     try:
-        google_event_id, meeting_link = create_event(
+        calendar_event_id = create_event(
             interviewer,
             summary=f"{stage.stage_name} - {candidate.name}",
             description=f"{job.title} - {stage.stage_name} interview with {candidate.name} ({candidate.email})",
             start=slot_start, end=slot_end, attendee_email=candidate.email,
+            meeting_link=meeting_link,
         )
     except Exception:
         current_app.logger.exception("Failed to create calendar event for candidate %s", candidate.id)
@@ -524,7 +544,7 @@ def submit_application(token):
             scheduled_end=slot_end,
             confirmation_code=confirmation_code,
             meeting_link=meeting_link,
-            google_event_id=google_event_id,
+            calendar_event_id=calendar_event_id,
         )
         interview.candidates.append(candidate)
         db.session.add(interview)
@@ -544,12 +564,12 @@ def submit_application(token):
         db.session.rollback()
         current_app.logger.exception(
             "Failed to persist booking after creating calendar event %s for candidate %s - "
-            "attempting to delete the orphaned event", google_event_id, candidate.id,
+            "attempting to delete the orphaned event", calendar_event_id, candidate.id,
         )
         try:
-            delete_event(interviewer, google_event_id)
+            delete_event(interviewer, calendar_event_id)
         except Exception:
-            current_app.logger.exception("Also failed to clean up orphaned calendar event %s", google_event_id)
+            current_app.logger.exception("Also failed to clean up orphaned calendar event %s", calendar_event_id)
         return jsonify({"error": "something went wrong while booking - please try again"}), 500
 
     status_url = f"{current_app.config['FRONTEND_BASE_URL']}/status?code={confirmation_code}"

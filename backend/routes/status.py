@@ -31,9 +31,15 @@ from flask import Blueprint, current_app, jsonify, request
 from email_sender import is_plausible_email, send_confirmation_email
 from extensions import limiter
 from file_storage import delete_candidate_file, save_candidate_file
-from models import Candidate, CandidateDocument, Interview, OnboardingDocumentItem, db, iso_utc
+from models import Candidate, CandidateDocument, CandidateStageProgress, Interview, OnboardingDocumentItem, db, iso_utc
 
 status_bp = Blueprint('status', __name__)
+
+# The CandidateStageProgress.status values that gate a stage's onboarding
+# items into view on the candidate's own status page (see
+# _onboarding_checklist below) - any positive outcome, regardless of
+# whether its onboarding documents (if it has any) have been submitted yet.
+YES_STATUSES = {'Yes', 'Yes - Awaiting information', 'Yes - Information received'}
 
 # Onboarding uploads through this public endpoint - deliberately narrower
 # than what a recruiter can upload on a candidate's behalf (routes/
@@ -117,13 +123,24 @@ def _resolve_interview(code):
 
 
 def _onboarding_checklist(candidate):
-    """Every onboarding item across all of the candidate's job's stages
-    (see Job.onboarding_items), each annotated with whatever's already been
-    uploaded - identical shape/logic to routes/candidates.py's
-    list_document_types, just reached by confirmation code instead of
-    recruiter auth. Empty if the candidate has no job, or its stages define no
-    onboarding items - the frontend hides the whole section in that case."""
+    """Every onboarding item whose *own* stage already has a positive
+    outcome recorded (we don't know yet whether a candidate will actually
+    be hired until their interview is over, so asking for licenses/
+    documents any earlier would be premature) - each annotated with
+    whatever's already been uploaded. Recruiter-side list_document_types
+    (routes/candidates.py) shows the same items ungated, since a recruiter
+    needs full visibility regardless of where the candidate is in the
+    process; this gating is specific to what the candidate themselves sees
+    on their own status page.
+
+    "Positive outcome" is CandidateStageProgress.status being one of
+    YES_STATUSES - each item belongs to one specific stage
+    (OnboardingDocumentItem.meeting_stage_template_id), so a job with
+    onboarding items split across multiple stages reveals each group
+    independently as its own stage gets a decision, not all-or-nothing on
+    the whole job."""
     uploaded = {d.onboarding_item_id: d.to_dict() for d in candidate.documents}
+    progress_by_template = {p.meeting_stage_template_id: p for p in candidate.stage_progress}
     items = candidate.job.onboarding_items if candidate.job else []
     return [
         {
@@ -134,6 +151,8 @@ def _onboarding_checklist(candidate):
             "submission": uploaded.get(item.id),
         }
         for item in items
+        if (progress := progress_by_template.get(item.meeting_stage_template_id))
+        and progress.status in YES_STATUSES
     ]
 
 
@@ -233,6 +252,16 @@ def upload_status_document():
     if not item or not candidate.job or item.meeting_stage_template.job_id != candidate.job_id:
         return jsonify({"error": "onboarding item does not belong to this application"}), 400
 
+    # Same gate as GET /api/status's checklist (see _onboarding_checklist) -
+    # enforced here too, not just by hiding the item from the list, since a
+    # candidate could otherwise still POST directly to an item_id they saw
+    # before its stage had a decision recorded.
+    progress = CandidateStageProgress.query.filter_by(
+        candidate_id=candidate.id, meeting_stage_template_id=item.meeting_stage_template_id,
+    ).first()
+    if not progress or progress.status not in YES_STATUSES:
+        return jsonify({"error": "this item isn't available to upload yet"}), 400
+
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
@@ -269,6 +298,19 @@ def upload_status_document():
             stored_filename=stored_filename,
         )
         db.session.add(document)
+
+    # Once every required item for this stage has a submission, advance the
+    # recruiter's "awaiting information" outcome to "information received"
+    # automatically, rather than making them notice and flip it by hand -
+    # see CandidateStageProgress.VALID_STATUSES. Flush first so
+    # candidate.documents reflects this upload (not yet committed) in the
+    # check below.
+    db.session.flush()
+    if progress.status == 'Yes - Awaiting information':
+        required_item_ids = {i.id for i in item.meeting_stage_template.onboarding_items if i.required}
+        uploaded_item_ids = {d.onboarding_item_id for d in candidate.documents}
+        if required_item_ids <= uploaded_item_ids:
+            progress.status = 'Yes - Information received'
 
     db.session.commit()
     return jsonify(document.to_dict()), 200

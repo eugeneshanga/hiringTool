@@ -10,8 +10,14 @@ export const MEETING_TYPES: { type: StageMeetingType; hint: string }[] = [
 export const DEFAULT_DURATION = '10'
 export const DEFAULT_CAPACITY = '3'
 
+// Orientation can optionally take an interviewer + duration too, alongside
+// (not instead of) its capacity/session setup below - giving it a live
+// Outlook-availability picker on the candidate detail page (see
+// StageTabs.tsx's AvailabilityScheduleModal) as well as the existing
+// capacity/session system, for a job that wants 1:1 scheduling for
+// orientation instead of (or in addition to) group sessions.
 export function needsDuration(type: StageMeetingType | '') {
-  return type === 'Virtual interview' || type === 'In-person interview'
+  return type === 'Virtual interview' || type === 'In-person interview' || type === 'In-person orientation'
 }
 
 // 'In-person orientation' sessions are typically group sessions - a default

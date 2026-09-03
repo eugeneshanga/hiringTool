@@ -19,17 +19,22 @@ export interface User {
   last_name: string
   name: string
   phone: string | null
+  // This interviewer's own static video-meeting link (RingCentral) - shown
+  // to candidates in booking confirmations once they're assigned as an
+  // interviewer for a stage. See ProfilePage.tsx.
+  personal_meeting_link: string | null
   email: string
   role: UserRole
   is_active: boolean
   created_at: string
 }
 
-// A prospective candidate's own login — separate identity from Candidate,
-// which is the per-job application/pipeline record recruiters manage.
-export interface GoogleCalendarStatus {
+// A recruiter/interviewer's connected Microsoft/Outlook Calendar (see
+// microsoft_calendar.py and routes/calendar_auth.py) - not to be confused
+// with Candidate, which is the per-job application/pipeline record.
+export interface MicrosoftCalendarStatus {
   connected: boolean
-  google_email?: string
+  account_email?: string
 }
 
 // This single-tenant app's one Organization row - name plus whether a
@@ -42,7 +47,7 @@ export interface Organization {
   has_logo: boolean
   has_banner: boolean
   // Bounds the public apply flow's candidate-visible scheduling
-  // availability (see google_calendar.get_free_slots) - editable from the
+  // availability (see microsoft_calendar.get_free_slots) - editable from the
   // Organization Settings page. scheduling_days is a list of
   // date.weekday() ints, Monday=0 .. Sunday=6.
   scheduling_timezone: string
@@ -75,8 +80,8 @@ export interface MeetingStageTemplate {
   instructions: string | null
   scheduling_window_days: number
   sort_order: number
-  // Which User's connected Google Calendar the public apply flow checks for
-  // availability and books onto (see google_calendar.py) - only meaningful
+  // Which User's connected Microsoft Calendar the public apply flow checks
+  // for availability and books onto (see microsoft_calendar.py) - only meaningful
   // alongside duration_minutes, same as needsDuration() gates in the editor.
   interviewer_user_id: number | null
   interviewer_name: string | null
@@ -120,7 +125,17 @@ export interface Job {
   meeting_stages: MeetingStageTemplate[]
 }
 
-export type StageProgressStatus = 'Upcoming' | 'Completed' | 'Cancelled' | 'No show'
+export type StageProgressStatus =
+  | 'Upcoming'
+  | 'Yes'
+  | 'Yes - Awaiting information'
+  | 'Yes - Information received'
+  | 'No'
+  | 'Maybe'
+  | 'Hired'
+  | 'No show'
+  | 'No response'
+  | 'Needs review'
 
 // A stage-progress summary for whichever meeting stage is "current" for the
 // candidate, surfaced on the list view — the soonest upcoming one, else the
@@ -204,6 +219,13 @@ export interface CandidateStage {
   meeting_stage_template_id: number
   stage_name: string
   meeting_type: StageMeetingType
+  // Whether this stage can be booked via a real calendar (both set) - see
+  // api.getAvailableSlots/bookStageSlot and StageTabs.tsx's
+  // AvailabilityScheduleModal. Interview stages always have both; an
+  // orientation stage only does if set up that way instead of (or as well
+  // as) the capacity/session system.
+  interviewer_user_id: number | null
+  duration_minutes: number | null
   id: number | null
   status: StageProgressStatus
   scheduled_at: string | null
@@ -217,6 +239,8 @@ export interface CandidateStage {
   // CandidateStageProgress in models.py).
   cancellation_reason: string | null
   prompt_reschedule: boolean | null
+  has_recording: boolean
+  recording_filename: string | null
 }
 
 export interface CandidateDocumentSubmission {

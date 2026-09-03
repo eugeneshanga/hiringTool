@@ -1,10 +1,23 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, ApiError } from '../../api/client'
 import { Modal } from '../../components/Modal'
 import { useSavedFlash } from '../../hooks/useSavedFlash'
+import { AvailabilityScheduleModal } from './AvailabilityScheduleModal'
 import type { CandidateDetail, CandidateStage, StageProgressStatus } from '../../api/types'
 
-const STAGE_STATUSES: StageProgressStatus[] = ['Upcoming', 'Completed', 'Cancelled', 'No show']
+const STAGE_STATUSES: StageProgressStatus[] = [
+  'Upcoming', 'Yes', 'Yes - Awaiting information', 'Yes - Information received',
+  'No', 'Maybe', 'Hired', 'No show', 'No response', 'Needs review',
+]
+
+// e.g. "Yes - Awaiting information" -> "yes-awaiting-information" (see
+// index.css's .status-* classes) - collapses every run of non-alphanumeric
+// characters (spaces, the literal " - " separator) to one dash, rather than
+// a naive whitespace-only replace, which would leave the hyphen in place
+// and produce an awkward double dash.
+function statusBadgeClass(status: string) {
+  return status.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+}
 
 function formatDateTime(iso: string | null) {
   if (!iso) return null
@@ -87,11 +100,14 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
   const [showReschedule, setShowReschedule] = useState(false)
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
+  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false)
 
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [promptReschedule, setPromptReschedule] = useState(true)
   const [cancellationReason, setCancellationReason] = useState('')
   const [cancelling, setCancelling] = useState(false)
+
+  const [uploadingRecording, setUploadingRecording] = useState(false)
 
   const activeStage: CandidateStage | null =
     candidate.stages.find((s) => s.meeting_stage_template_id === activeTemplateId) ?? null
@@ -143,7 +159,9 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
     try {
       onCandidateChange(
         await api.updateStageProgress(candidate.id, activeTemplateId, {
-          status: 'Cancelled',
+          // 'No' - same status a manual rejection uses, and cascades the
+          // same way (see routes/candidates.py's update_stage_progress).
+          status: 'No',
           prompt_reschedule: promptReschedule,
           cancellation_reason: cancellationReason.trim() || null,
         }),
@@ -156,7 +174,18 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
     }
   }
 
+  // A stage with both set has a live calendar to schedule against (see
+  // AvailabilityScheduleModal) - true for every interview stage that's
+  // actually usable for the public apply flow already, and optionally true
+  // for orientation too (see lib/meetingStageTypes.ts's needsDuration).
+  // Anything else falls back to the plain manual date/time modal below.
+  const hasLiveCalendar = activeStage?.interviewer_user_id != null && activeStage?.duration_minutes != null
+
   function openReschedule() {
+    if (hasLiveCalendar) {
+      setShowAvailabilityModal(true)
+      return
+    }
     if (activeStage?.scheduled_at) {
       setRescheduleDate(toLocalDateValue(activeStage.scheduled_at))
       setRescheduleTime(toLocalTimeValue(activeStage.scheduled_at))
@@ -187,6 +216,30 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
     window.open(`mailto:${candidate.email}`)
   }
 
+  async function handleRecordingUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || activeTemplateId == null) return
+    setUploadingRecording(true)
+    try {
+      onCandidateChange(await api.uploadRecording(candidate.id, activeTemplateId, file))
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : 'Failed to upload recording')
+    } finally {
+      setUploadingRecording(false)
+    }
+  }
+
+  async function handleRemoveRecording() {
+    if (activeTemplateId == null) return
+    if (!confirm('Remove this recording?')) return
+    try {
+      onCandidateChange(await api.deleteRecording(candidate.id, activeTemplateId))
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : 'Failed to remove recording')
+    }
+  }
+
   if (candidate.stages.length === 0) return null
 
   return (
@@ -212,7 +265,7 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
             {isOrientation && !activeStage.scheduled_at ? (
               <span className="status-badge">No status</span>
             ) : (
-              <span className={`status-badge status-${activeStage.status.replace(/\s+/g, '-').toLowerCase()}`}>
+              <span className={`status-badge status-${statusBadgeClass(activeStage.status)}`}>
                 {activeStage.status}
               </span>
             )}
@@ -249,7 +302,28 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
               </div>
 
               <div className="interview-review">
-                <div className="video-placeholder">Recording not available</div>
+                {activeStage.has_recording ? (
+                  <div className="video-panel">
+                    <video key={activeTemplateId} controls src={api.recordingUrl(candidate.id, activeStage.meeting_stage_template_id)} />
+                    <div className="video-panel-actions">
+                      <label className="link-button">
+                        {uploadingRecording ? 'Uploading…' : 'Replace recording'}
+                        <input type="file" hidden accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v" onChange={handleRecordingUpload} disabled={uploadingRecording} />
+                      </label>
+                      <button type="button" className="link-button danger" onClick={handleRemoveRecording}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="video-placeholder">
+                    <span>{uploadingRecording ? 'Uploading…' : 'Recording not available'}</span>
+                    <label className="link-button">
+                      Upload recording
+                      <input type="file" hidden accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v" onChange={handleRecordingUpload} disabled={uploadingRecording} />
+                    </label>
+                  </div>
+                )}
                 <div className="interview-review-fields">
                   <label>
                     Status
@@ -336,6 +410,20 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
             </div>
           </form>
         </Modal>
+      )}
+
+      {showAvailabilityModal && activeStage && activeTemplateId != null && (
+        <AvailabilityScheduleModal
+          candidateId={candidate.id}
+          templateId={activeTemplateId}
+          stageName={activeStage.stage_name}
+          durationMinutes={activeStage.duration_minutes}
+          onClose={() => setShowAvailabilityModal(false)}
+          onScheduled={(updated) => {
+            onCandidateChange(updated)
+            setShowAvailabilityModal(false)
+          }}
+        />
       )}
 
       {showCancelModal && activeStage && (

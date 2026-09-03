@@ -398,7 +398,7 @@ def test_confirmation_email_content(spy_provider):
     result = email_sender.send_confirmation_email(
         to_email='jane@example.com', candidate_name='Jane Applicant', job_title='CHHA',
         stage_name='Virtual interview', scheduled_start=scheduled_start,
-        meeting_link='https://meet.google.com/abc-defg-hij', confirmation_code='7X4KMPQ2R',
+        meeting_link='https://v.ringcentral.com/join/199431569', confirmation_code='7X4KMPQ2R',
         status_url='https://example.com/status?code=7X4KMPQ2R',
     )
 
@@ -406,6 +406,6 @@ def test_confirmation_email_content(spy_provider):
     to_email, subject, body = spy_provider.sent[0]
     assert to_email == 'jane@example.com'
     assert 'CHHA' in subject and 'Virtual interview' in subject
-    assert 'https://meet.google.com/abc-defg-hij' in body
+    assert 'https://v.ringcentral.com/join/199431569' in body
     assert '7X4KMPQ2R' in body
     assert 'https://example.com/status?code=7X4KMPQ2R' in body

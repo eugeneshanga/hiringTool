@@ -131,7 +131,7 @@ was deployed (see step 5's `SQLiteImpl` check above).
 Contents should mirror local `database.env`, except:
 - `DATABASE_URL`'s host is `localhost` (running on the DB server itself
   now, not connecting remotely)
-- `GOOGLE_REDIRECT_URI` and `CALENDAR_FRONTEND_REDIRECT_URL` point at
+- `MICROSOFT_REDIRECT_URI` and `CALENDAR_FRONTEND_REDIRECT_URL` point at
   `careers.fprecioushomecare.com`, not `localhost`
 - `FRONTEND_BASE_URL=https://careers.fprecioushomecare.com` (this one
   doesn't exist in local `database.env` at all - it silently uses
@@ -139,8 +139,8 @@ Contents should mirror local `database.env`, except:
   gets embedded in candidate-facing application emails, so it must be set
   explicitly.)
 
-If `GOOGLE_REDIRECT_URI` ever changes, it also needs to be added to the
-**Google Cloud Console** OAuth client's Authorized Redirect URIs list -
+If `MICROSOFT_REDIRECT_URI` ever changes, it also needs to be added to the
+Entra ID app registration's Authentication page as a Web redirect URI -
 that's a separate, manual step outside DirectAdmin entirely.
 
 ## Why the layout looks like this

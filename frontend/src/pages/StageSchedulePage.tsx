@@ -39,7 +39,7 @@ export function StageSchedulePage() {
   const [savingSettings, setSavingSettings] = useState(false)
 
   // Who can be assigned to check their calendar for this stage's public
-  // apply-flow availability (see google_calendar.py) - any active user, not
+  // apply-flow availability (see microsoft_calendar.py) - any active user, not
   // just admins (GET /api/organization/interviewers is deliberately not
   // admin-gated, unlike the full user list).
   useEffect(() => {
@@ -239,7 +239,7 @@ export function StageSchedulePage() {
         )}
         {needsDuration(template.meeting_type) && (
           <label>
-            Interviewer (public apply calendar)
+            Interviewer (live calendar scheduling)
             <select value={interviewerInput} onChange={(e) => handleInterviewerChange(e.target.value)}>
               <option value="">Not assigned</option>
               {interviewers.map((i) => (

@@ -107,6 +107,23 @@ const DAY_OPTIONS: { value: number; label: string }[] = [
   { value: 6, label: 'Sun' },
 ]
 
+// IANA zone names, not fixed-offset abbreviations (e.g. "America/New_York",
+// not "EST") - an abbreviation like EST doesn't shift for daylight saving,
+// so scheduling would silently drift an hour off for a chunk of the year.
+// The backend (routes/organization.py) validates via zoneinfo.ZoneInfo,
+// which technically accepts those abbreviations too - this dropdown is
+// what actually keeps a recruiter from picking one by mistake.
+const TIMEZONE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'America/New_York', label: 'Eastern Time (New York)' },
+  { value: 'America/Chicago', label: 'Central Time (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain Time (Denver)' },
+  { value: 'America/Phoenix', label: 'Mountain Time - no DST (Phoenix)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (Los Angeles)' },
+  { value: 'America/Anchorage', label: 'Alaska Time (Anchorage)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii Time (Honolulu)' },
+  { value: 'UTC', label: 'UTC' },
+]
+
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
 
 function formatHourLabel(hour: number) {
@@ -117,7 +134,7 @@ function formatHourLabel(hour: number) {
 
 /** The "Organization" tab: editable org name, logo/scheduling-page banner
  * branding, and the working-hours window/days the public apply flow's
- * scheduler offers candidates (see google_calendar.get_free_slots, which
+ * scheduler offers candidates (see microsoft_calendar.get_free_slots, which
  * reads these same fields). */
 export function OrganizationSettingsPage() {
   usePageTitle('Organization - HiringTool')
@@ -272,11 +289,19 @@ export function OrganizationSettingsPage() {
           </label>
           <label>
             Timezone
-            <input
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="e.g. America/New_York"
-            />
+            <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+              {/* Covers a saved value from before this was a dropdown (or set directly via the API) that
+                  isn't one of the options below - e.g. a fixed-offset abbreviation like "EST" rather than
+                  a real IANA zone - so it doesn't silently switch to something else out from under you. */}
+              {!TIMEZONE_OPTIONS.some((tz) => tz.value === timezone) && (
+                <option value={timezone}>{timezone} (not a standard zone - please pick one below)</option>
+              )}
+              {TIMEZONE_OPTIONS.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
 

@@ -100,7 +100,7 @@ class ConsoleEmailProvider(EmailProvider):
 
 class PostmarkEmailProvider(EmailProvider):
     """Sends via Postmark's HTTP API (no SDK dependency - this is a single
-    small POST, and `requests` is already a dependency for google_calendar.py).
+    small POST, and `requests` is already a dependency for microsoft_calendar.py).
     Chosen over relaying through a personal/Workspace Gmail account: Postmark
     is built for transactional mail specifically, manages IP reputation and
     SPF/DKIM/DMARC signing for you, and - the actual anti-abuse property this
@@ -171,7 +171,7 @@ class PostmarkEmailProvider(EmailProvider):
 class ResendEmailProvider(EmailProvider):
     """Sends via Resend's HTTP API (no SDK dependency - this is a single
     small POST, and `requests` is already a dependency for
-    google_calendar.py). Same rationale as PostmarkEmailProvider for using a
+    microsoft_calendar.py). Same rationale as PostmarkEmailProvider for using a
     transactional-email API over relaying through a plain mailbox account:
     Resend manages IP reputation and DKIM/SPF/DMARC signing, and monitors
     for abuse, rather than leaving this app to own that itself. The app's

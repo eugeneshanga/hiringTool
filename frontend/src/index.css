@@ -4,8 +4,17 @@
   --border: #e2e5ea;
   --text: #1a1d23;
   --text-subtle: #6b7280;
-  --primary: #3355ff;
-  --primary-hover: #2544e0;
+  --primary: #44beee;
+  --primary-hover: #14a7e0;
+  /* #44beee is light enough that white text on it fails contrast (about
+     2.1:1 - WCAG AA needs 4.5:1 for normal text) - every var(--primary)
+     background pairs its text with this instead of white now. */
+  --on-primary: var(--text);
+  /* Same hue as --primary, darkened - #44beee itself fails contrast as
+     small text on a light background (same 2.1:1 problem, just inverted),
+     so links/active-tab-text/etc. use this instead of --primary directly.
+     --primary itself stays reserved for backgrounds/fills/borders. */
+  --primary-text: #0f7aa4;
   --danger: #d64545;
   color-scheme: light;
 }
@@ -57,7 +66,7 @@ h1 {
 }
 
 .app-header .brand:hover {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .app-header nav {
@@ -74,7 +83,7 @@ h1 {
 
 .app-header nav a.active,
 .app-header nav a:hover {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .user-info {
@@ -125,7 +134,7 @@ h1 {
   height: 1.75rem;
   font-size: 0.7rem;
   font-weight: 700;
-  color: white;
+  color: var(--on-primary);
   background: var(--primary);
 }
 
@@ -243,7 +252,7 @@ button {
   border-radius: 6px;
   border: none;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   cursor: pointer;
 }
 
@@ -258,7 +267,7 @@ button:disabled {
 
 .link-button {
   background: none;
-  color: var(--primary);
+  color: var(--primary-text);
   font-weight: 500;
   padding: 0;
 }
@@ -573,7 +582,7 @@ button:disabled {
 
 .landing-hero {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   text-align: center;
   padding: 3rem 1.5rem;
 }
@@ -592,7 +601,7 @@ button:disabled {
 
 .landing-hero p {
   margin: 0;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(26, 29, 35, 0.75);
 }
 
 .landing-body {
@@ -657,7 +666,7 @@ button:disabled {
 .job-row-schedule-button {
   display: inline-block;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   font-weight: 600;
   padding: 0.5rem 1.1rem;
   border-radius: 6px;
@@ -850,7 +859,7 @@ button:disabled {
 }
 
 .chip-row-link:hover {
-  background: rgba(51, 85, 255, 0.08);
+  background: rgba(68, 190, 238, 0.08);
 }
 
 .chip {
@@ -986,13 +995,13 @@ button:disabled {
    so "bookable" reads as a variant of the app's existing primary-tint
    affordance rather than a one-off color. */
 .calendar-day.has-availability {
-  background: rgba(51, 85, 255, 0.08);
+  background: rgba(68, 190, 238, 0.08);
   font-weight: 600;
 }
 
 .calendar-day.selected {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 
 .calendar-dot {
@@ -1036,7 +1045,7 @@ button:disabled {
 
 .time-slot-button.active {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border-color: var(--primary);
 }
 
@@ -1069,7 +1078,7 @@ button:disabled {
 
 .icon-button {
   background: none;
-  color: var(--primary);
+  color: var(--primary-text);
   padding: 0.15rem;
   font-size: 1rem;
   line-height: 1;
@@ -1220,7 +1229,7 @@ button:disabled {
   height: 3rem;
   border-radius: 8px;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   font-weight: 700;
   font-size: 1rem;
 }
@@ -1235,7 +1244,7 @@ button:disabled {
 
 .job-detail-sidebar a.active {
   background: var(--bg);
-  color: var(--primary);
+  color: var(--primary-text);
   font-weight: 600;
 }
 
@@ -1313,7 +1322,7 @@ button:disabled {
 /* Secondary button */
 .button-secondary {
   background: var(--surface);
-  color: var(--primary);
+  color: var(--primary-text);
   border: 1px solid var(--border);
 }
 
@@ -1658,8 +1667,13 @@ button:disabled {
 }
 
 .tab-button.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+  color: var(--primary-text);
+  /* --primary-text, not --primary - this line sits directly on a light
+     background and needs to actually be visible, same reasoning as the
+     text color right above (unlike .time-slot-button.active's border
+     above, which sits on its own var(--primary) fill and doesn't need to
+     stand out from it). */
+  border-bottom-color: var(--primary-text);
 }
 
 .stage-tab-heading {
@@ -1685,22 +1699,44 @@ button:disabled {
   color: #2a3fc7;
 }
 
-.status-completed {
-  background: #e0f5e6;
-  color: #1a8a4a;
-}
-
 .calendar-status-connected {
   color: #1a8a4a;
   font-weight: 600;
 }
 
-.status-cancelled {
-  background: #fdecec;
-  color: var(--danger);
+/* CandidateStageProgress.VALID_STATUSES - see StageTabs.tsx's
+   statusBadgeClass for how a status turns into one of these class names. */
+.status-yes,
+.status-yes-information-received {
+  background: #e0f5e6;
+  color: #1a8a4a;
 }
 
-.status-no-show {
+.status-yes-awaiting-information {
+  background: #fff4e0;
+  color: #b5760a;
+}
+
+.status-hired {
+  background: #e0f5e6;
+  color: #1a8a4a;
+  font-weight: 700;
+}
+
+.status-no {
+  background: #fdecec;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.status-maybe,
+.status-needs-review {
+  background: #f1e9fc;
+  color: #7c3aed;
+}
+
+.status-no-show,
+.status-no-response {
   background: var(--border);
   color: var(--text-subtle);
 }
@@ -1717,9 +1753,29 @@ button:disabled {
   border-radius: 10px;
   min-height: 280px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.6rem;
   color: var(--text-subtle);
+}
+
+.video-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.video-panel video {
+  width: 100%;
+  max-height: 280px;
+  border-radius: 10px;
+  background: #000;
+}
+
+.video-panel-actions {
+  display: flex;
+  gap: 1rem;
 }
 
 .interview-review-fields {
@@ -1758,7 +1814,7 @@ button:disabled {
 
 .score-button.active {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 
 .document-list {

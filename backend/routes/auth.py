@@ -62,5 +62,11 @@ def update_me():
     if 'phone' in data:
         user.phone = (data.get('phone') or '').strip() or None
 
+    if 'personal_meeting_link' in data:
+        link = (data.get('personal_meeting_link') or '').strip()
+        if link and not (link.startswith('http://') or link.startswith('https://')):
+            return jsonify({"error": "personal_meeting_link must start with http:// or https://"}), 400
+        user.personal_meeting_link = link or None
+
     db.session.commit()
     return jsonify(user.to_dict()), 200
