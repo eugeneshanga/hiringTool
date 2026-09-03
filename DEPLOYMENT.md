@@ -143,6 +143,20 @@ If `MICROSOFT_REDIRECT_URI` ever changes, it also needs to be added to the
 Entra ID app registration's Authentication page as a Web redirect URI -
 that's a separate, manual step outside DirectAdmin entirely.
 
+- `FORCE_HTTPS=true` — not present in local `database.env` at all (defaults
+  to off there). Turns on app.py's HTTP→HTTPS redirect. **Verify it actually
+  works after setting it and restarting** —
+  `curl -sI http://careers.fprecioushomecare.com` should come back with a
+  `302` to an `https://` URL. If it doesn't (still loads plainly over
+  HTTP), that almost certainly means Apache isn't forwarding an
+  `X-Forwarded-Proto` header to Passenger - the redirect is deliberately
+  built to stay a no-op rather than guess in that case (a false positive
+  would redirect-loop the whole site), so nothing breaks, it just means
+  this particular fix isn't doing anything yet. Check DirectAdmin's SSL
+  Certificates page for that domain for a built-in "Force HTTPS"/redirect
+  option instead - if one exists, it handles this at the Apache level
+  directly and doesn't depend on `FORCE_HTTPS` at all.
+
 ## Why the layout looks like this
 
 DirectAdmin's Application root expects its startup file

@@ -124,6 +124,9 @@ DirectAdmin's Git integration doesn't support this deployment's subdomain).
   Every `to_email` this module sends to — regardless of provider — is
   validated by `is_plausible_email()` first, closing off header injection
   via a crafted address like `victim@x.com\r\nBcc: attacker@evil.com`.
+- `FORCE_HTTPS` — unset/`false` by default (local dev has no TLS to redirect
+  to). Set to `true` only in production, once HTTPS is confirmed reachable
+  there — see DEPLOYMENT.md.
 - `frontend/.env` — `VITE_API_URL`, the backend's address.
 
 Neither file is committed (see `.gitignore`); both have `.example`-style
@@ -221,11 +224,19 @@ defaults documented above.
   elsewhere.)
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
-- `CORS(app)` (app.py) has no restricted origin list, and there's no
-  enforced HTTP→HTTPS redirect - both flagged, neither acted on yet.
-- Login (`POST /api/auth/login`) has no rate limiting, unlike the public
-  apply-form/status endpoints - nothing currently slows down repeated
-  password-guessing attempts against it.
+- `CORS(app)` (app.py) has no restricted origin list — flagged, not acted
+  on yet.
+- ~~Login has no rate limiting~~ — fixed: `POST /api/auth/login` is now
+  rate-limited both per-IP (20/hour) and per-email attempted (10/hour,
+  `routes/auth.py`'s `_login_email_rate_limit_key`), so neither rotating
+  IPs against one account nor spraying guesses across many accounts from
+  one IP gets far.
+- ~~No enforced HTTP→HTTPS redirect~~ — fixed at the app level
+  (`app.py`'s `before_request` hook, gated by `FORCE_HTTPS` -
+  see DEPLOYMENT.md for the production setup/verification step). Only
+  active when explicitly turned on in production; deliberately a no-op
+  whenever it can't be sure the original request was actually plain HTTP,
+  rather than risk a redirect loop.
 - Resume/onboarding-document/interview-recording storage is local disk under
   `backend/uploads/` — fine for one dev machine or single-worker deployment,
   not for a real multi-instance one.
