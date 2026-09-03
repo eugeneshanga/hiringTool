@@ -1,11 +1,25 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from extensions import limiter
 from models import db, User
 
 auth_bp = Blueprint('auth', __name__)
 
 
+def _login_email_rate_limit_key():
+    """Key for the per-email login-attempt limit - independent of the
+    per-IP limit Flask-Limiter's default key_func provides, so a
+    credential-stuffing attempt rotating IPs against one known email is
+    still capped, and legitimate users behind a shared IP (office network)
+    aren't penalized for each other's login attempts. Same pattern as
+    routes/apply.py's _email_job_rate_limit_key."""
+    data = request.get_json(silent=True) or {}
+    return (data.get('email') or '').strip().lower()
+
+
 @auth_bp.route('/api/auth/login', methods=['POST'])
+@limiter.limit("20 per hour")
+@limiter.limit("10 per hour", key_func=_login_email_rate_limit_key)
 def login():
     data = request.get_json(silent=True) or {}
     email = data.get('email')

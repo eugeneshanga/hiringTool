@@ -109,3 +109,10 @@ class Config:
     # reply. Minutes, not hours, so it's easy to turn down for testing/demo
     # without a code change.
     REJECTION_EMAIL_DELAY_MINUTES = int(os.environ.get('REJECTION_EMAIL_DELAY_MINUTES', '60'))
+
+    # Forces a redirect to HTTPS for any request that arrives over plain
+    # HTTP (see app.py's before_request hook) - off by default so local dev
+    # (http://localhost:5050, no TLS at all) isn't affected. Set to 'true'
+    # only in the production database.env, once HTTPS is confirmed actually
+    # reachable there.
+    FORCE_HTTPS = os.environ.get('FORCE_HTTPS', 'false').lower() == 'true'

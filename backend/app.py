@@ -2,7 +2,7 @@ import logging
 import os
 
 import click
-from flask import Flask, send_from_directory
+from flask import Flask, redirect, request, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate, upgrade
@@ -61,6 +61,22 @@ def create_app(config_overrides=None):
     jwt = JWTManager(app)
     CORS(app)
     limiter.init_app(app)
+
+    # Redirects plain HTTP to HTTPS - only active when FORCE_HTTPS is set
+    # (production; see config.py). DirectAdmin/Apache sits in front of this
+    # app and terminates TLS itself, so `request.is_secure` can't be trusted
+    # directly - only X-Forwarded-Proto tells us what scheme the visitor's
+    # browser actually used. Deliberately does nothing (no redirect) if that
+    # header is absent rather than guessing, since a false positive here
+    # would redirect-loop the entire site; this can only ever act on an
+    # explicit "http" from the proxy, never invent one.
+    @app.before_request
+    def _redirect_http_to_https():
+        if not app.config.get('FORCE_HTTPS'):
+            return None
+        if request.headers.get('X-Forwarded-Proto') == 'http':
+            return redirect(request.url.replace('http://', 'https://', 1), code=302)
+        return None
 
     # Every JWT issued from here on is a recruiter (User) token - candidates
     # never got their own login in practice (see ApplicationStatusPage /
