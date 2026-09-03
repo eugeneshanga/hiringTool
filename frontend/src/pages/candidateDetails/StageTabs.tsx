@@ -2,9 +2,10 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, ApiError } from '../../api/client'
 import { Modal } from '../../components/Modal'
 import { useSavedFlash } from '../../hooks/useSavedFlash'
+import { AvailabilityScheduleModal } from './AvailabilityScheduleModal'
 import type { CandidateDetail, CandidateStage, StageProgressStatus } from '../../api/types'
 
-const STAGE_STATUSES: StageProgressStatus[] = ['Upcoming', 'Completed', 'Cancelled', 'No show']
+const STAGE_STATUSES: StageProgressStatus[] = ['Upcoming', 'Completed', 'Cancelled', 'No show', 'Rejected']
 
 function formatDateTime(iso: string | null) {
   if (!iso) return null
@@ -87,6 +88,7 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
   const [showReschedule, setShowReschedule] = useState(false)
   const [rescheduleDate, setRescheduleDate] = useState('')
   const [rescheduleTime, setRescheduleTime] = useState('')
+  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false)
 
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [promptReschedule, setPromptReschedule] = useState(true)
@@ -158,7 +160,18 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
     }
   }
 
+  // A stage with both set has a live calendar to schedule against (see
+  // AvailabilityScheduleModal) - true for every interview stage that's
+  // actually usable for the public apply flow already, and optionally true
+  // for orientation too (see lib/meetingStageTypes.ts's needsDuration).
+  // Anything else falls back to the plain manual date/time modal below.
+  const hasLiveCalendar = activeStage?.interviewer_user_id != null && activeStage?.duration_minutes != null
+
   function openReschedule() {
+    if (hasLiveCalendar) {
+      setShowAvailabilityModal(true)
+      return
+    }
     if (activeStage?.scheduled_at) {
       setRescheduleDate(toLocalDateValue(activeStage.scheduled_at))
       setRescheduleTime(toLocalTimeValue(activeStage.scheduled_at))
@@ -383,6 +396,20 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
             </div>
           </form>
         </Modal>
+      )}
+
+      {showAvailabilityModal && activeStage && activeTemplateId != null && (
+        <AvailabilityScheduleModal
+          candidateId={candidate.id}
+          templateId={activeTemplateId}
+          stageName={activeStage.stage_name}
+          durationMinutes={activeStage.duration_minutes}
+          onClose={() => setShowAvailabilityModal(false)}
+          onScheduled={(updated) => {
+            onCandidateChange(updated)
+            setShowAvailabilityModal(false)
+          }}
+        />
       )}
 
       {showCancelModal && activeStage && (

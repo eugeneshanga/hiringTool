@@ -239,7 +239,7 @@ export function StageSchedulePage() {
         )}
         {needsDuration(template.meeting_type) && (
           <label>
-            Interviewer (public apply calendar)
+            Interviewer (live calendar scheduling)
             <select value={interviewerInput} onChange={(e) => handleInterviewerChange(e.target.value)}>
               <option value="">Not assigned</option>
               {interviewers.map((i) => (

@@ -16,7 +16,16 @@ from datetime import datetime, timedelta
 import pytest
 
 import routes.status as status_module
-from models import Candidate, CandidateDocument, Interview, Job, MeetingStageTemplate, OnboardingDocumentItem, db
+from models import (
+    Candidate,
+    CandidateDocument,
+    CandidateStageProgress,
+    Interview,
+    Job,
+    MeetingStageTemplate,
+    OnboardingDocumentItem,
+    db,
+)
 
 
 def _book(app, job, *, phone='555-123-4567', confirmation_code='ABC234XYZ', scheduled_start=None, public=True):
@@ -89,6 +98,17 @@ def _add_onboarding_item(app, meeting_stage, **overrides):
         return item
 
 
+def _complete_stage(app, candidate_id, meeting_stage):
+    """Onboarding items only become visible/uploadable once their own
+    stage's CandidateStageProgress is Completed - see
+    routes/status.py's _onboarding_checklist."""
+    with app.app_context():
+        db.session.add(CandidateStageProgress(
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id, status='Completed',
+        ))
+        db.session.commit()
+
+
 def _pdf_bytes():
     return b'%PDF-1.4 fake pdf content'
 
@@ -109,8 +129,9 @@ def _png_bytes():
 # --- onboarding checklist on GET /api/status ---------------------------------
 
 def test_status_includes_onboarding_checklist(app, client, job, meeting_stage):
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage, description='Upload your license')
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.get('/api/status?code=ABC234XYZ')
 
@@ -124,6 +145,7 @@ def test_status_includes_onboarding_checklist(app, client, job, meeting_stage):
 def test_status_onboarding_checklist_reflects_existing_submission(app, client, job, meeting_stage):
     candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
     with app.app_context():
         db.session.add(CandidateDocument(
             candidate_id=candidate_id, onboarding_item_id=item.id,
@@ -146,6 +168,48 @@ def test_status_onboarding_checklist_empty_when_job_has_no_items(app, client, jo
     assert resp.get_json()['onboarding_documents'] == []
 
 
+def test_status_onboarding_checklist_hides_items_before_their_stage_is_completed(app, client, job, meeting_stage):
+    """We don't know yet whether a candidate will actually be hired until
+    their interview is over - an item stays hidden while its stage is
+    Upcoming (or has no progress row at all yet)."""
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
+    _add_onboarding_item(app, meeting_stage)
+
+    resp = client.get('/api/status?code=ABC234XYZ')
+    assert resp.get_json()['onboarding_documents'] == []
+
+    with app.app_context():
+        db.session.add(CandidateStageProgress(
+            candidate_id=candidate_id, meeting_stage_template_id=meeting_stage.id, status='Upcoming',
+        ))
+        db.session.commit()
+
+    resp = client.get('/api/status?code=ABC234XYZ')
+    assert resp.get_json()['onboarding_documents'] == []
+
+
+def test_status_onboarding_checklist_only_reveals_items_for_the_completed_stage(app, client, job, meeting_stage):
+    """A job with onboarding items split across two stages reveals each
+    group independently, not all-or-nothing on the whole job."""
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
+    completed_item = _add_onboarding_item(app, meeting_stage, description='Completed-stage doc')
+    with app.app_context():
+        other_stage = MeetingStageTemplate(
+            job_id=job.id, meeting_type='In-person orientation', stage_name='Orientation',
+            sort_order=1,
+        )
+        db.session.add(other_stage)
+        db.session.commit()
+        db.session.refresh(other_stage)
+    _add_onboarding_item(app, other_stage, description='Not-yet-completed-stage doc')
+    _complete_stage(app, candidate_id, meeting_stage)
+
+    resp = client.get('/api/status?code=ABC234XYZ')
+
+    docs = resp.get_json()['onboarding_documents']
+    assert [d['item_id'] for d in docs] == [completed_item.id]
+
+
 # --- POST /api/status/documents ----------------------------------------------
 
 def test_upload_document_requires_code(client):
@@ -163,8 +227,9 @@ def test_upload_document_404s_for_unknown_code(client):
 
 
 def test_upload_document_succeeds_with_a_pdf(app, client, job, meeting_stage):
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.post(
         '/api/status/documents',
@@ -184,6 +249,7 @@ def test_upload_document_succeeds_with_a_pdf(app, client, job, meeting_stage):
 def test_upload_document_replaces_an_existing_submission(app, client, job, meeting_stage):
     candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
     with app.app_context():
         db.session.add(CandidateDocument(
             candidate_id=candidate_id, onboarding_item_id=item.id,
@@ -208,8 +274,9 @@ def test_upload_document_replaces_an_existing_submission(app, client, job, meeti
 
 
 def test_upload_document_accepts_docx(app, client, job, meeting_stage):
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.post(
         '/api/status/documents',
@@ -224,8 +291,9 @@ def test_upload_document_accepts_docx(app, client, job, meeting_stage):
 
 
 def test_upload_document_accepts_png(app, client, job, meeting_stage):
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.post(
         '/api/status/documents',
@@ -240,8 +308,9 @@ def test_upload_document_accepts_png(app, client, job, meeting_stage):
 
 
 def test_upload_document_rejects_disallowed_extension(app, client, job, meeting_stage):
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.post(
         '/api/status/documents',
@@ -257,8 +326,9 @@ def test_upload_document_rejects_disallowed_extension(app, client, job, meeting_
 
 
 def test_upload_document_rejects_content_that_does_not_match_extension(app, client, job, meeting_stage):
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.post(
         '/api/status/documents',
@@ -279,8 +349,9 @@ def test_upload_document_rejects_a_zip_renamed_to_docx(app, client, job, meeting
     # A plain ZIP (no word/document.xml inside) shares docx's PK\x03\x04
     # signature - the deeper zipfile-contents check must catch what a bare
     # byte-signature match would miss.
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w') as zf:
         zf.writestr('not_a_word_doc.txt', 'just some other zip content')
@@ -300,8 +371,9 @@ def test_upload_document_rejects_a_zip_renamed_to_docx(app, client, job, meeting
 def test_upload_document_rejects_oversized_file(app, client, job, meeting_stage, monkeypatch):
     import routes.status as status_module
     monkeypatch.setattr(status_module, 'MAX_UPLOAD_SIZE_BYTES', 10)
-    _book(app, job, confirmation_code='ABC234XYZ')
+    candidate_id, _interview_id = _book(app, job, confirmation_code='ABC234XYZ')
     item = _add_onboarding_item(app, meeting_stage)
+    _complete_stage(app, candidate_id, meeting_stage)
 
     resp = client.post(
         '/api/status/documents',

@@ -125,7 +125,7 @@ export interface Job {
   meeting_stages: MeetingStageTemplate[]
 }
 
-export type StageProgressStatus = 'Upcoming' | 'Completed' | 'Cancelled' | 'No show'
+export type StageProgressStatus = 'Upcoming' | 'Completed' | 'Cancelled' | 'No show' | 'Rejected'
 
 // A stage-progress summary for whichever meeting stage is "current" for the
 // candidate, surfaced on the list view — the soonest upcoming one, else the
@@ -209,6 +209,13 @@ export interface CandidateStage {
   meeting_stage_template_id: number
   stage_name: string
   meeting_type: StageMeetingType
+  // Whether this stage can be booked via a real calendar (both set) - see
+  // api.getAvailableSlots/bookStageSlot and StageTabs.tsx's
+  // AvailabilityScheduleModal. Interview stages always have both; an
+  // orientation stage only does if set up that way instead of (or as well
+  // as) the capacity/session system.
+  interviewer_user_id: number | null
+  duration_minutes: number | null
   id: number | null
   status: StageProgressStatus
   scheduled_at: string | null

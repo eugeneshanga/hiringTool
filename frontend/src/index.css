@@ -1705,6 +1705,12 @@ button:disabled {
   color: var(--text-subtle);
 }
 
+.status-rejected {
+  background: #fdecec;
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .interview-review {
   display: grid;
   grid-template-columns: 1fr 1fr;

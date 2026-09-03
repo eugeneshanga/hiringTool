@@ -1,24 +1,38 @@
 import io
 import os
 import zipfile
+from datetime import datetime
 
-from flask import Blueprint, jsonify, request, send_file
+import requests
+from flask import Blueprint, current_app, jsonify, request, send_file
 from flask_jwt_extended import jwt_required
 
 from dateutils import parse_datetime
+from email_sender import send_confirmation_email
 from file_storage import candidate_file_path, delete_candidate_file, delete_candidate_files, save_candidate_file
+from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, create_event, delete_event
+# Reused rather than reimplemented - _available_slots_for_stage and
+# _unique_confirmation_code are apply.py's own module-level helpers, not
+# route handlers, and there's no circular import here (apply.py doesn't
+# import anything from this module). See book_stage_slot below, which
+# mirrors apply.py's submit_application for a recruiter-initiated booking
+# instead of the public token-based one.
+from routes.apply import _available_slots_for_stage, _unique_confirmation_code
 from validation import validate_choice
 from models import (
     CandidateDocument,
     CandidateScreeningAnswer,
     CandidateStageProgress,
     Candidate,
+    Interview,
     Job,
     OnboardingDocumentItem,
     ScreeningQuestion,
     MeetingStageTemplate,
+    User,
     db,
     is_email_blocked,
+    iso_utc,
 )
 
 candidates_bp = Blueprint('candidates', __name__)
@@ -354,6 +368,17 @@ def update_stage_progress(candidate_id, template_id):
 
     if 'status' in data:
         progress.status = data['status']
+        # Mirrors the auto-disqualification path in routes/apply.py: a
+        # candidate rejected at any one stage is rejected overall, and
+        # scheduled_jobs.send_due_rejection_emails picks up disqualified_at
+        # the same way regardless of which path set it. Only set
+        # disqualified_at the first time - re-saving 'Rejected' (or
+        # rejecting a second stage) shouldn't push back an already-running
+        # delay.
+        if data['status'] == 'Rejected':
+            candidate.stage = 'Rejected'
+            if not candidate.disqualified_at:
+                candidate.disqualified_at = datetime.utcnow()
     if 'scheduled_at' in data:
         raw = data['scheduled_at']
         if raw:
@@ -458,3 +483,160 @@ def delete_recording(candidate_id, template_id):
     progress.recording_stored_filename = None
     db.session.commit()
     return jsonify(Candidate.query.get(candidate_id).to_detail_dict()), 200
+
+
+# --- Calendar-based scheduling (recruiter side) -------------------------------
+# A recruiter-initiated equivalent of the public apply flow's own booking
+# (routes/apply.py's GET/POST /api/apply/<token>...), for scheduling a
+# candidate directly from their detail page against a stage's real Outlook
+# availability - not just the first stage a token is scoped to. Currently
+# used for orientation stages once they're given an interviewer + duration
+# (see lib/meetingStageTypes.ts's needsDuration on the frontend), the same
+# way an interview stage always has been; the existing capacity/session
+# system (routes/interviews.py's enroll_candidate, reached from the Stage
+# editor's "Schedule" tab) still works exactly as before for stages that
+# don't set those two fields.
+
+@candidates_bp.route(
+    '/api/candidates/<int:candidate_id>/stages/<int:template_id>/available-slots', methods=['GET']
+)
+@jwt_required()
+def get_available_slots(candidate_id, template_id):
+    candidate = Candidate.query.get_or_404(candidate_id)
+    template = MeetingStageTemplate.query.get_or_404(template_id)
+    if candidate.job_id != template.job_id:
+        return jsonify({"error": "meeting stage does not belong to this candidate's job"}), 400
+
+    try:
+        slots = _available_slots_for_stage(template)
+    except Exception:
+        current_app.logger.exception(
+            "Failed to fetch calendar availability for meeting stage %s (candidate %s)", template.id, candidate.id,
+        )
+        slots = []
+    return jsonify({"available_slots": [{"start": iso_utc(start), "end": iso_utc(end)} for start, end in slots]}), 200
+
+
+@candidates_bp.route(
+    '/api/candidates/<int:candidate_id>/stages/<int:template_id>/book', methods=['POST']
+)
+@jwt_required()
+def book_stage_slot(candidate_id, template_id):
+    """Books a real slot from get_available_slots above against the stage's
+    assigned interviewer - creates (or, on a reschedule, updates in place)
+    a real Interview with a real Microsoft Calendar event, exactly like a
+    candidate's own self-service booking, just triggered by a recruiter
+    instead. Mirrors routes/apply.py's submit_application closely; the
+    differences are what's already established here (confirmation_code
+    stays stable across a reschedule instead of being reissued, and this
+    never touches Candidate.stage/scheduled - those are specific to the
+    public apply flow's own single-token gating, not relevant to booking
+    an arbitrary stage from this side)."""
+    candidate = Candidate.query.get_or_404(candidate_id)
+    template = MeetingStageTemplate.query.get_or_404(template_id)
+    if candidate.job_id != template.job_id:
+        return jsonify({"error": "meeting stage does not belong to this candidate's job"}), 400
+
+    interviewer = User.query.get(template.interviewer_user_id) if template.interviewer_user_id else None
+    if not template.duration_minutes or not interviewer:
+        return jsonify({"error": "this stage isn't set up for calendar scheduling yet"}), 400
+
+    data = request.get_json(silent=True) or {}
+    try:
+        slot_start = parse_datetime(data.get('slot_start'), 'slot_start')
+        slot_end = parse_datetime(data.get('slot_end'), 'slot_end')
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
+        current_slots = _available_slots_for_stage(template)
+    except (CalendarNotConnectedError, CalendarTokenError, requests.RequestException):
+        return jsonify({"error": "scheduling is temporarily unavailable - please try again shortly"}), 503
+    if (slot_start, slot_end) not in current_slots:
+        return jsonify({"error": "that time is no longer available - please pick another"}), 409
+
+    meeting_link = interviewer.personal_meeting_link
+    existing_interview = next(
+        (i for i in candidate.interviews if i.meeting_stage_template_id == template.id), None
+    )
+
+    try:
+        calendar_event_id = create_event(
+            interviewer,
+            summary=f"{template.stage_name} - {candidate.name}",
+            description=f"{candidate.job.title} - {template.stage_name} with {candidate.name} ({candidate.email})",
+            start=slot_start, end=slot_end, attendee_email=candidate.email,
+            meeting_link=meeting_link,
+        )
+    except Exception:
+        current_app.logger.exception("Failed to create calendar event for candidate %s", candidate.id)
+        return jsonify({"error": "scheduling is temporarily unavailable - please try again shortly"}), 503
+
+    if existing_interview and existing_interview.calendar_event_id:
+        try:
+            delete_event(interviewer, existing_interview.calendar_event_id)
+        except Exception:
+            current_app.logger.exception(
+                "Failed to clean up old calendar event %s while rescheduling candidate %s",
+                existing_interview.calendar_event_id, candidate.id,
+            )
+
+    try:
+        if existing_interview:
+            existing_interview.scheduled_start = slot_start
+            existing_interview.scheduled_end = slot_end
+            existing_interview.calendar_event_id = calendar_event_id
+            existing_interview.meeting_link = meeting_link
+            existing_interview.location = meeting_link
+            confirmation_code = existing_interview.confirmation_code
+        else:
+            confirmation_code = _unique_confirmation_code()
+            interview = Interview(
+                job_id=candidate.job_id,
+                meeting_stage_template_id=template.id,
+                stage_name=template.stage_name,
+                meeting_type='Orientation' if template.meeting_type == 'In-person orientation' else 'Interview',
+                location=meeting_link,
+                scheduled_start=slot_start,
+                scheduled_end=slot_end,
+                confirmation_code=confirmation_code,
+                meeting_link=meeting_link,
+                calendar_event_id=calendar_event_id,
+            )
+            interview.candidates.append(candidate)
+            db.session.add(interview)
+
+        progress = CandidateStageProgress.query.filter_by(
+            candidate_id=candidate.id, meeting_stage_template_id=template.id,
+        ).first()
+        if not progress:
+            progress = CandidateStageProgress(candidate_id=candidate.id, meeting_stage_template_id=template.id)
+            db.session.add(progress)
+        progress.status = 'Upcoming'
+        progress.scheduled_at = slot_start
+        progress.location = meeting_link
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Failed to persist booking after creating calendar event %s for candidate %s - "
+            "attempting to delete the orphaned event", calendar_event_id, candidate.id,
+        )
+        try:
+            delete_event(interviewer, calendar_event_id)
+        except Exception:
+            current_app.logger.exception("Also failed to clean up orphaned calendar event %s", calendar_event_id)
+        return jsonify({"error": "something went wrong while booking - please try again"}), 500
+
+    status_url = f"{current_app.config['FRONTEND_BASE_URL']}/status?code={confirmation_code}"
+    try:
+        send_confirmation_email(
+            to_email=candidate.email, candidate_name=candidate.name, job_title=candidate.job.title,
+            stage_name=template.stage_name, scheduled_start=slot_start, meeting_link=meeting_link,
+            confirmation_code=confirmation_code, status_url=status_url,
+        )
+    except Exception:
+        current_app.logger.exception("Failed to send confirmation email for candidate %s", candidate.id)
+
+    return jsonify(candidate.to_detail_dict()), 200

@@ -15,6 +15,7 @@ import type {
   ScreeningQuestion,
   MeetingStageTemplate,
   MicrosoftCalendarStatus,
+  PublicSlot,
   StageProgressStatus,
   User,
   UserRole,
@@ -226,6 +227,14 @@ export const api = {
   ) =>
     request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}`, {
       method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  getAvailableSlots: (candidateId: number, templateId: number) =>
+    request<{ available_slots: PublicSlot[] }>(`/api/candidates/${candidateId}/stages/${templateId}/available-slots`),
+  bookStageSlot: (candidateId: number, templateId: number, data: { slot_start: string; slot_end: string }) =>
+    request<CandidateDetail>(`/api/candidates/${candidateId}/stages/${templateId}/book`, {
+      method: 'POST',
       body: JSON.stringify(data),
     }),
 

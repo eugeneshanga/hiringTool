@@ -443,10 +443,13 @@ class Candidate(db.Model):
     # email+job re-applying) knows whether the existing row is still "live".
     application_token = db.Column(db.String(64), unique=True, index=True, nullable=True)
     application_token_expires_at = db.Column(db.DateTime, nullable=True)
-    # Set the moment the public apply flow auto-evaluates this candidate's
-    # screening answers as disqualifying (routes/apply.py's apply()) - null
-    # for everyone else (qualified, still-pending, or not through this flow
-    # at all). Paired with rejection_email_sent_at (also null until sent) so
+    # Set the moment this candidate becomes disqualified - either
+    # automatically, by the public apply flow evaluating their screening
+    # answers (routes/apply.py's apply()), or manually, by a recruiter
+    # setting a stage's status to 'Rejected' after an interview (routes/
+    # candidates.py's update_stage_progress). Null for everyone else
+    # (qualified, still-pending, or not through either path at all). Paired
+    # with rejection_email_sent_at (also null until sent) so
     # scheduled_jobs.send_due_rejection_emails can find "disqualified more
     # than REJECTION_EMAIL_DELAY_MINUTES ago, not yet notified" without a
     # separate status enum. stage is set to 'Rejected' immediately (visible
@@ -578,6 +581,14 @@ class Candidate(db.Model):
                         "meeting_stage_template_id": t.id,
                         "stage_name": t.stage_name,
                         "meeting_type": t.meeting_type,
+                        # Whether this stage can be booked via a real calendar
+                        # (routes/candidates.py's get_available_slots/
+                        # book_stage_slot) - lets the frontend show the live
+                        # availability picker instead of a plain date/time
+                        # field for a stage set up that way (interview stages
+                        # always have been; orientation optionally can be too).
+                        "interviewer_user_id": t.interviewer_user_id,
+                        "duration_minutes": t.duration_minutes,
                         **(
                             progress_by_template[t.id].to_dict()
                             if t.id in progress_by_template
@@ -658,7 +669,11 @@ class CandidateStageProgress(db.Model):
     recording_stored_filename = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    VALID_STATUSES = ('Upcoming', 'Completed', 'Cancelled', 'No show')
+    # 'Rejected' mirrors the auto-disqualification path (screening answers)
+    # for a candidate who doesn't work out at this stage - see
+    # routes/candidates.py's update_stage_progress, which cascades it to
+    # Candidate.stage/disqualified_at too, not just this row.
+    VALID_STATUSES = ('Upcoming', 'Completed', 'Cancelled', 'No show', 'Rejected')
 
     __table_args__ = (
         db.UniqueConstraint('candidate_id', 'meeting_stage_template_id', name='uq_candidate_stage'),
