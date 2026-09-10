@@ -392,20 +392,44 @@ def test_schedule_interview_email_content(spy_provider):
     assert expires_at.strftime('%B %d, %Y') in body
 
 
-def test_confirmation_email_content(spy_provider):
-    scheduled_start = datetime(2026, 9, 1, 15, 30)
-
-    result = email_sender.send_confirmation_email(
+def _send_confirmation(spy_provider, scheduled_start):
+    email_sender.send_confirmation_email(
         to_email='jane@example.com', candidate_name='Jane Applicant', job_title='CHHA',
         stage_name='Virtual interview', scheduled_start=scheduled_start,
         meeting_link='https://v.ringcentral.com/join/199431569', confirmation_code='7X4KMPQ2R',
         status_url='https://example.com/status?code=7X4KMPQ2R',
     )
+    return spy_provider.sent[0]
 
-    assert result is True
-    to_email, subject, body = spy_provider.sent[0]
+
+def test_confirmation_email_content(app, spy_provider):
+    with app.app_context():
+        to_email, subject, body = _send_confirmation(spy_provider, datetime(2026, 9, 1, 15, 30))
+
     assert to_email == 'jane@example.com'
     assert 'CHHA' in subject and 'Virtual interview' in subject
     assert 'https://v.ringcentral.com/join/199431569' in body
     assert '7X4KMPQ2R' in body
     assert 'https://example.com/status?code=7X4KMPQ2R' in body
+
+
+def test_confirmation_email_renders_time_in_org_timezone(app, spy_provider):
+    """The stored slot is naive UTC (2026-09-01 15:30). With the org on
+    America/New_York it should read as 11:30 AM EDT, not 03:30 PM UTC - the
+    exact bug this covers is the old hardcoded ' UTC' suffix."""
+    from models import Organization, db
+
+    with app.app_context():
+        db.session.add(Organization(name='Test Org', scheduling_timezone='America/New_York'))
+        db.session.commit()
+        _to, _subj, body = _send_confirmation(spy_provider, datetime(2026, 9, 1, 15, 30))
+
+    assert '11:30 AM EDT' in body
+    assert 'UTC' not in body
+
+
+def test_confirmation_email_falls_back_to_utc_without_an_org(app, spy_provider):
+    with app.app_context():
+        _to, _subj, body = _send_confirmation(spy_provider, datetime(2026, 9, 1, 15, 30))
+
+    assert '03:30 PM UTC' in body
