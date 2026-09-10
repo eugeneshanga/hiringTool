@@ -133,7 +133,9 @@ def test_rejects_a_resume_over_the_size_cap(client, job):
     be raised much higher to admit interview recordings (see
     routes/candidates.py) and so no longer catches an oversized resume by
     itself at the Werkzeug level."""
-    oversized = io.BytesIO(b'0' * (16 * 1024 * 1024))
+    # Valid PDF header so it clears the content check and fails specifically
+    # on size (see routes/upload_validation.py's check order).
+    oversized = io.BytesIO(b'%PDF-1.4\n' + b'0' * (16 * 1024 * 1024))
     resp = _post_apply(client, job_id=job.id, resume=(oversized, 'huge-resume.pdf'))
 
     assert resp.status_code == 400
@@ -336,6 +338,12 @@ def test_apply_disqualifying_answer_gets_no_token_and_no_schedule_email(app, cli
         assert candidate.application_token is None
         assert candidate.stage == 'Rejected'
         assert candidate.disqualified_at is not None
+        # A disqualified candidate has no CandidateStageProgress row at all
+        # (never scheduled), so to_detail_dict synthesizes the stage - and
+        # for a rejected candidate that synthesized status is 'No', not the
+        # neutral 'Upcoming' a still-in-progress candidate would show.
+        stages = candidate.to_detail_dict()['stages']
+        assert stages and all(s['status'] == 'No' for s in stages)
     assert mock_email == []  # no scheduling link goes out
 
 

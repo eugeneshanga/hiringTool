@@ -1267,10 +1267,17 @@ button:disabled {
 }
 
 .job-details-page,
-.profile-page {
+.profile-page,
+.settings-page {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+/* The gap above is the only thing spacing this page's cards - drop the
+   header's own margin so it's not stacked on top of that gap. */
+.settings-page .page-header {
+  margin-bottom: 0;
 }
 
 .job-details-page .danger-zone {
@@ -1496,6 +1503,13 @@ button:disabled {
 .image-picker {
   flex: 1;
   min-width: 220px;
+}
+
+/* "Replace"/"Upload" is a <label> (picks up the 0.85rem `label` rule),
+   "Remove" is a <button> (falls back to the inherited body size) - pin
+   both so they match. */
+.image-picker .link-button {
+  font-size: 0.85rem;
 }
 
 .image-picker-frame {

@@ -526,22 +526,45 @@ class Candidate(db.Model):
         }
 
     def _current_stage_summary(self):
-        """The stage progress row to surface on the candidates list: the
-        soonest upcoming one, else the most recently touched one."""
-        if not self.stage_progress:
+        """Which meeting stage the candidate is currently on, plus that
+        stage's outcome status - the pair the candidates list shows as
+        "Stage" / "Status".
+
+        The current stage is the furthest one they've reached: the
+        highest-ordered meeting stage that's been scheduled or given a
+        decided status (anything other than the neutral 'Upcoming'). A
+        candidate advances to the next stage when the recruiter schedules
+        its meeting - that creates/updates its progress row, which makes it
+        the new furthest-reached stage. Before any stage is scheduled they
+        sit on the job's first stage.
+        """
+        templates = (
+            sorted(self.job.meeting_stage_templates, key=lambda t: (t.sort_order, t.id))
+            if self.job
+            else []
+        )
+        if not templates:
             return None
-        upcoming = [p for p in self.stage_progress if p.status == 'Upcoming' and p.scheduled_at]
-        if upcoming:
-            progress = min(upcoming, key=lambda p: p.scheduled_at)
-        else:
-            progress = max(self.stage_progress, key=lambda p: p.updated_at or p.id)
+        progress_by_template = {p.meeting_stage_template_id: p for p in self.stage_progress}
+        reached = [
+            t
+            for t in templates
+            if (p := progress_by_template.get(t.id)) is not None
+            and (p.scheduled_at is not None or p.status != 'Upcoming')
+        ]
+        current = reached[-1] if reached else templates[0]
+        progress = progress_by_template.get(current.id)
         return {
-            "meeting_stage_template_id": progress.meeting_stage_template_id,
-            "stage_name": progress.meeting_stage_template.stage_name
-            if progress.meeting_stage_template
-            else None,
-            "status": progress.status,
-            "scheduled_at": iso_utc(progress.scheduled_at),
+            "meeting_stage_template_id": current.id,
+            "stage_name": current.stage_name,
+            # No progress row yet (they're sitting on the first stage,
+            # nothing scheduled): 'Upcoming', unless the candidate has been
+            # rejected outright - matches to_detail_dict's per-stage
+            # synthesized fallback.
+            "status": progress.status
+            if progress
+            else ('No' if self.stage == 'Rejected' else 'Upcoming'),
+            "scheduled_at": iso_utc(progress.scheduled_at) if progress else None,
         }
 
     def to_detail_dict(self):
@@ -594,7 +617,16 @@ class Candidate(db.Model):
                             if t.id in progress_by_template
                             else {
                                 "id": None,
-                                "status": 'Upcoming',
+                                # A rejected candidate reads as 'No' on every
+                                # stage that has no progress row of its own,
+                                # rather than the neutral 'Upcoming' default -
+                                # covers the auto-disqualification path (which
+                                # never creates a progress row) and the other
+                                # stages of a candidate a recruiter rejected at
+                                # just one stage. See routes/candidates.py's
+                                # update_stage_progress for the cascade that
+                                # sets Candidate.stage in the first place.
+                                "status": 'No' if self.stage == 'Rejected' else 'Upcoming',
                                 "scheduled_at": None,
                                 "location": None,
                                 "notes": None,

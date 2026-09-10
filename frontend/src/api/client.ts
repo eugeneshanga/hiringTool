@@ -55,9 +55,21 @@ export function saveBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-/** Opens a blob in a new tab (for "view" rather than "download" links). */
+// Types a browser will parse and execute as markup. A blob: URL inherits
+// this app's origin, so opening one of these in a tab would run its
+// scripts as us - a candidate-uploaded "resume.pdf" that's really HTML,
+// say. The backend already restricts and content-checks those uploads
+// (upload_validation.py) and serves them as attachments; this is the
+// belt-and-suspenders on the frontend side.
+const EXECUTABLE_BLOB_TYPES = ['text/html', 'application/xhtml+xml', 'image/svg+xml', 'text/xml', 'application/xml']
+
+/** Opens a blob in a new tab (for "view" rather than "download" links).
+ * Anything a browser might render as markup is forced to download instead. */
 export function openBlob(blob: Blob) {
-  const url = URL.createObjectURL(blob)
+  const safe = EXECUTABLE_BLOB_TYPES.includes(blob.type)
+    ? new Blob([blob], { type: 'application/octet-stream' })
+    : blob
+  const url = URL.createObjectURL(safe)
   window.open(url, '_blank')
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
@@ -147,10 +159,16 @@ export const api = {
   deleteMeetingStage: (jobId: number, templateId: number) =>
     request<void>(`/api/jobs/${jobId}/meeting-stages/${templateId}`, { method: 'DELETE' }),
 
-  listCandidates: (params?: { search?: string; stage?: string; job_id?: number }) => {
+  listCandidates: (params?: {
+    search?: string
+    stage?: string
+    status?: StageProgressStatus
+    job_id?: number
+  }) => {
     const qs = new URLSearchParams()
     if (params?.search) qs.set('search', params.search)
     if (params?.stage) qs.set('stage', params.stage)
+    if (params?.status) qs.set('status', params.status)
     if (params?.job_id) qs.set('job_id', String(params.job_id))
     const s = qs.toString()
     return request<Candidate[]>(`/api/candidates${s ? `?${s}` : ''}`)

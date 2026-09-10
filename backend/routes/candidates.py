@@ -18,6 +18,7 @@ from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, cr
 # mirrors apply.py's submit_application for a recruiter-initiated booking
 # instead of the public token-based one.
 from routes.apply import _available_slots_for_stage, _unique_confirmation_code
+from upload_validation import ONBOARDING_EXTENSIONS, RESUME_EXTENSIONS, reject_bad_upload
 from validation import validate_choice
 from models import (
     CandidateDocument,
@@ -83,16 +84,26 @@ def get_candidates():
             (Candidate.email.ilike(f'%{search}%'))
         )
 
-    stage = request.args.get('stage')
-    if stage:
-        query = query.filter_by(stage=stage)
-
     job_id = request.args.get('job_id')
     if job_id:
         query = query.filter_by(job_id=job_id)
 
-    candidates = query.all()
-    return jsonify([c.to_dict() for c in candidates]), 200
+    # "stage" is now the current meeting-stage name and "status" the current
+    # stage's outcome (Yes/No/Maybe/...) - both come from
+    # _current_stage_summary() rather than a column, so filter in Python
+    # after loading (the candidate list is small).
+    stage_name = request.args.get('stage')
+    status = request.args.get('status')
+    result = []
+    for c in query.all():
+        payload = c.to_dict()
+        summary = payload.get('current_stage')
+        if stage_name and not (summary and summary['stage_name'] == stage_name):
+            continue
+        if status and not (summary and summary['status'] == status):
+            continue
+        result.append(payload)
+    return jsonify(result), 200
 
 
 @candidates_bp.route('/api/candidates/<int:candidate_id>', methods=['GET'])
@@ -188,9 +199,11 @@ def upload_resume(candidate_id):
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
-    too_large = _reject_if_too_large(file, MAX_RESUME_SIZE_BYTES)
-    if too_large:
-        return too_large
+    bad = reject_bad_upload(
+        file, allowed_extensions=RESUME_EXTENSIONS, max_size_bytes=MAX_RESUME_SIZE_BYTES
+    )
+    if bad:
+        return bad
 
     if candidate.resume_stored_filename:
         delete_candidate_file(candidate.id, candidate.resume_stored_filename)
@@ -208,9 +221,14 @@ def download_resume(candidate_id):
     candidate = Candidate.query.get_or_404(candidate_id)
     if not candidate.resume_stored_filename:
         return jsonify({"error": "no resume uploaded"}), 404
+    # as_attachment: never let the browser render a candidate-supplied file
+    # inline (a .pdf that's actually HTML would run as this app's origin when
+    # the frontend opens the blob) - it downloads instead. The app-wide
+    # nosniff header (app.py) backs this up.
     return send_file(
         candidate_file_path(candidate.id, candidate.resume_stored_filename),
         download_name=candidate.resume_original_filename,
+        as_attachment=True,
     )
 
 
@@ -252,9 +270,11 @@ def upload_document(candidate_id, item_id):
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
-    too_large = _reject_if_too_large(file, MAX_DOCUMENT_SIZE_BYTES)
-    if too_large:
-        return too_large
+    bad = reject_bad_upload(
+        file, allowed_extensions=ONBOARDING_EXTENSIONS, max_size_bytes=MAX_DOCUMENT_SIZE_BYTES
+    )
+    if bad:
+        return bad
 
     existing = CandidateDocument.query.filter_by(
         candidate_id=candidate.id, onboarding_item_id=item.id
@@ -288,6 +308,7 @@ def download_document(candidate_id, item_id):
     return send_file(
         candidate_file_path(candidate_id, document.stored_filename),
         download_name=document.original_filename,
+        as_attachment=True,  # never render a candidate-supplied file inline - see download_resume
     )
 
 

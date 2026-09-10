@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ApiError, saveBlob } from '../api/client'
 import { usePageTitle } from '../hooks/usePageTitle'
-import type { Candidate, Job, Stage } from '../api/types'
+import type { Candidate, Job, StageProgressStatus } from '../api/types'
 import { formatPhone } from '../lib/formatPhone'
 
-const STAGES: Stage[] = ['Applied', 'Interview', 'Offer', 'Hired', 'Rejected']
+const STATUSES: StageProgressStatus[] = [
+  'Upcoming', 'Yes', 'Yes - Awaiting information', 'Yes - Information received',
+  'No', 'Maybe', 'Hired', 'No show', 'No response', 'Needs review',
+]
 
 function formatDate(iso: string | null) {
   if (!iso) return '—'
@@ -29,6 +32,7 @@ export function CandidatesPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +52,7 @@ export function CandidatesPage() {
         api.listCandidates({
           search: search || undefined,
           stage: stageFilter || undefined,
+          status: (statusFilter || undefined) as StageProgressStatus | undefined,
         }),
         api.listJobs(),
       ])
@@ -64,7 +69,7 @@ export function CandidatesPage() {
     const timeout = setTimeout(load, search ? 300 : 0)
     return () => clearTimeout(timeout)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, stageFilter])
+  }, [search, stageFilter, statusFilter])
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
@@ -99,6 +104,15 @@ export function CandidatesPage() {
       setError(err instanceof ApiError ? err.message : 'Failed to delete candidate')
     }
   }
+
+  // The meeting-stage names in use across all jobs - the "Stage" filter's
+  // options. Pulled from jobs (not the loaded candidates) so an option
+  // doesn't vanish once selecting it narrows the list.
+  const stageNames = useMemo(() => {
+    const names = new Set<string>()
+    for (const j of jobs) for (const s of j.meeting_stages) names.add(s.stage_name)
+    return [...names].sort()
+  }, [jobs])
 
   const rows = useMemo(
     () =>
@@ -161,7 +175,18 @@ export function CandidatesPage() {
               Stage
               <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
                 <option value="">All stages</option>
-                {STAGES.map((s) => (
+                {stageNames.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Status
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="">All statuses</option>
+                {STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>

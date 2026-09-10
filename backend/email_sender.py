@@ -31,7 +31,8 @@ import re
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 from flask import current_app
@@ -312,6 +313,22 @@ def send_schedule_interview_email(to_email, candidate_name, job_title, apply_url
     return _send(to_email, subject, text_body)
 
 
+def _format_scheduled_when(scheduled_start):
+    """Renders a naive-UTC datetime (this app's storage convention, see
+    models.iso_utc) in the org's configured scheduling timezone - the same
+    one the public scheduling page shows availability in
+    (Organization.scheduling_timezone, editable from Settings). %Z resolves
+    to the right abbreviation for the date (EDT vs EST, etc). Falls back to
+    UTC if no Organization row exists yet or its timezone is unset."""
+    # Local import: keeps this module's top-level deps free of the ORM.
+    from models import Organization
+
+    org = Organization.query.first()
+    tz = ZoneInfo(org.scheduling_timezone) if org and org.scheduling_timezone else timezone.utc
+    local = scheduled_start.replace(tzinfo=timezone.utc).astimezone(tz)
+    return local.strftime('%A, %B %d, %Y at %I:%M %p %Z')
+
+
 def send_confirmation_email(
     to_email, candidate_name, job_title, stage_name, scheduled_start, meeting_link, confirmation_code, status_url,
 ):
@@ -322,7 +339,7 @@ def send_confirmation_email(
     text_body = (
         f"Hi {candidate_name},\n\n"
         f"You're confirmed for your {stage_name} for the {job_title} position.\n\n"
-        f"When: {scheduled_start.strftime('%A, %B %d, %Y at %I:%M %p')} UTC\n"
+        f"When: {_format_scheduled_when(scheduled_start)}\n"
         f"Meeting link: {meeting_link}\n"
         f"Confirmation code: {confirmation_code}\n\n"
         f"You can check your status anytime here:\n{status_url}\n\n"

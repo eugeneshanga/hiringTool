@@ -44,7 +44,6 @@ that treatment - the token itself is the secret (only someone holding the
 emailed link reaches them), so honest 404/410/409s are fine there.
 """
 import json
-import os
 from datetime import datetime, timedelta
 
 import dns.resolver
@@ -62,6 +61,7 @@ from microsoft_calendar import (
     delete_event,
     get_free_slots,
 )
+from upload_validation import RESUME_EXTENSIONS, reject_bad_upload
 from models import (
     Candidate,
     CandidateScreeningAnswer,
@@ -248,12 +248,11 @@ def apply():
         return jsonify({"error": "a valid email is required"}), 400
     if not resume or not resume.filename:
         return jsonify({"error": "a resume is required"}), 400
-    resume.stream.seek(0, os.SEEK_END)
-    resume_size = resume.stream.tell()
-    resume.stream.seek(0)
-    if resume_size > MAX_RESUME_SIZE_BYTES:
-        max_mb = MAX_RESUME_SIZE_BYTES // (1024 * 1024)
-        return jsonify({"error": f"that file is too large - please upload something under {max_mb}MB"}), 400
+    bad_resume = reject_bad_upload(
+        resume, allowed_extensions=RESUME_EXTENSIONS, max_size_bytes=MAX_RESUME_SIZE_BYTES
+    )
+    if bad_resume:
+        return bad_resume
     if work_authorized is None or requires_visa_sponsorship is None:
         return jsonify({"error": "please answer both work-authorization questions"}), 400
 
