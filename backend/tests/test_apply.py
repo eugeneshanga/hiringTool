@@ -133,7 +133,9 @@ def test_rejects_a_resume_over_the_size_cap(client, job):
     be raised much higher to admit interview recordings (see
     routes/candidates.py) and so no longer catches an oversized resume by
     itself at the Werkzeug level."""
-    oversized = io.BytesIO(b'0' * (16 * 1024 * 1024))
+    # Valid PDF header so it clears the content check and fails specifically
+    # on size (see routes/upload_validation.py's check order).
+    oversized = io.BytesIO(b'%PDF-1.4\n' + b'0' * (16 * 1024 * 1024))
     resp = _post_apply(client, job_id=job.id, resume=(oversized, 'huge-resume.pdf'))
 
     assert resp.status_code == 400

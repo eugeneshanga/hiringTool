@@ -22,8 +22,6 @@ the one place email comes in, and it never reflects a match (or lack of
 one) back in its response at all - see that route's docstring - so it
 doesn't reopen the same hole.
 """
-import os
-import zipfile
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request
@@ -32,6 +30,7 @@ from email_sender import is_plausible_email, send_confirmation_email
 from extensions import limiter
 from file_storage import delete_candidate_file, save_candidate_file
 from models import Candidate, CandidateDocument, CandidateStageProgress, Interview, OnboardingDocumentItem, db, iso_utc
+from upload_validation import ONBOARDING_EXTENSIONS, reject_bad_upload
 
 status_bp = Blueprint('status', __name__)
 
@@ -41,48 +40,12 @@ status_bp = Blueprint('status', __name__)
 # whether its onboarding documents (if it has any) have been submitted yet.
 YES_STATUSES = {'Yes', 'Yes - Awaiting information', 'Yes - Information received'}
 
-# Onboarding uploads through this public endpoint - deliberately narrower
-# than what a recruiter can upload on a candidate's behalf (routes/
-# candidates.py's upload_document has no type/size limit of its own beyond
-# the app-wide MAX_CONTENT_LENGTH), since this one has no auth beyond the
-# confirmation code.
-ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.docx', '.jpg', '.jpeg', '.png'}
+# Onboarding uploads: this public endpoint has no auth beyond the
+# confirmation code, so the extension allowlist + content check
+# (upload_validation.reject_bad_upload) matter here in particular. The
+# recruiter-authenticated equivalent (routes/candidates.py's
+# upload_document) now runs the same checks.
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
-
-# Checked in addition to the extension - a filename's extension is trivially
-# spoofable, and this endpoint has no auth beyond the same confirmation-code
-# check GET /api/status uses. .docx gets its own, stronger check below (it's
-# a ZIP archive, and a raw byte-signature match can't tell a real .docx from
-# any other renamed .zip).
-_FILE_SIGNATURES = {
-    '.pdf': (b'%PDF',),
-    '.jpg': (b'\xff\xd8\xff',),
-    '.jpeg': (b'\xff\xd8\xff',),
-    '.png': (b'\x89PNG\r\n\x1a\n',),
-}
-
-
-def _looks_like_docx(file_storage):
-    """.docx is a ZIP archive with a specific internal layout - checking for
-    word/document.xml is a real (if not airtight) distinction from an
-    arbitrary renamed .zip, unlike a plain byte-signature match, which every
-    ZIP-based format (docx, xlsx, pptx, plain .zip) shares."""
-    try:
-        with zipfile.ZipFile(file_storage) as zf:
-            return 'word/document.xml' in zf.namelist()
-    except zipfile.BadZipFile:
-        return False
-    finally:
-        file_storage.seek(0)
-
-
-def _file_matches_extension(file_storage, ext):
-    if ext == '.docx':
-        return _looks_like_docx(file_storage)
-    signatures = _FILE_SIGNATURES.get(ext, ())
-    header = file_storage.read(max((len(s) for s in signatures), default=0))
-    file_storage.seek(0)
-    return any(header.startswith(sig) for sig in signatures)
 
 
 def _booked_interview_for_email(email):
@@ -232,9 +195,9 @@ def upload_status_document():
     ever logging in - authenticated by the same confirmation-code check GET
     /api/status uses, sent as a form field alongside the file since this is
     multipart/form-data. Mirrors routes/candidates.py's upload_document
-    (the recruiter-authenticated equivalent), plus the extension/magic-byte
-    and size checks this public endpoint adds on top - see module-level
-    ALLOWED_UPLOAD_EXTENSIONS/MAX_UPLOAD_SIZE_BYTES."""
+    (the recruiter-authenticated equivalent) - both run the same
+    extension/content/size checks via upload_validation.reject_bad_upload
+    (ONBOARDING_EXTENSIONS, MAX_UPLOAD_SIZE_BYTES)."""
     code = (request.form.get('code') or '').strip()
     if not code:
         return jsonify({"error": "code is required"}), 400
@@ -265,20 +228,11 @@ def upload_status_document():
     file = request.files.get('file')
     if not file or not file.filename:
         return jsonify({"error": "file is required"}), 400
-
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-        return jsonify({"error": "only PDF, DOCX, JPG, and PNG files are accepted"}), 400
-
-    file.stream.seek(0, os.SEEK_END)
-    size = file.stream.tell()
-    file.stream.seek(0)
-    if size > MAX_UPLOAD_SIZE_BYTES:
-        max_mb = MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)
-        return jsonify({"error": f"that file is too large - please upload something under {max_mb}MB"}), 400
-
-    if not _file_matches_extension(file.stream, ext):
-        return jsonify({"error": f"that file doesn't look like a valid {ext.lstrip('.').upper()} file"}), 400
+    bad = reject_bad_upload(
+        file, allowed_extensions=ONBOARDING_EXTENSIONS, max_size_bytes=MAX_UPLOAD_SIZE_BYTES
+    )
+    if bad:
+        return bad
 
     existing = CandidateDocument.query.filter_by(
         candidate_id=candidate.id, onboarding_item_id=item.id,

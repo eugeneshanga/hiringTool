@@ -55,9 +55,21 @@ export function saveBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-/** Opens a blob in a new tab (for "view" rather than "download" links). */
+// Types a browser will parse and execute as markup. A blob: URL inherits
+// this app's origin, so opening one of these in a tab would run its
+// scripts as us - a candidate-uploaded "resume.pdf" that's really HTML,
+// say. The backend already restricts and content-checks those uploads
+// (upload_validation.py) and serves them as attachments; this is the
+// belt-and-suspenders on the frontend side.
+const EXECUTABLE_BLOB_TYPES = ['text/html', 'application/xhtml+xml', 'image/svg+xml', 'text/xml', 'application/xml']
+
+/** Opens a blob in a new tab (for "view" rather than "download" links).
+ * Anything a browser might render as markup is forced to download instead. */
 export function openBlob(blob: Blob) {
-  const url = URL.createObjectURL(blob)
+  const safe = EXECUTABLE_BLOB_TYPES.includes(blob.type)
+    ? new Blob([blob], { type: 'application/octet-stream' })
+    : blob
+  const url = URL.createObjectURL(safe)
   window.open(url, '_blank')
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }

@@ -78,6 +78,17 @@ def create_app(config_overrides=None):
             return redirect(request.url.replace('http://', 'https://', 1), code=302)
         return None
 
+    @app.after_request
+    def _security_headers(response):
+        # nosniff: stop a browser from MIME-sniffing a response into
+        # something more dangerous than its declared Content-Type - notably
+        # treating a candidate-uploaded file (resumes/onboarding docs served
+        # by routes/candidates.py, status.py, public.py) as HTML and running
+        # it as this app's origin. Backs up as_attachment=True on those
+        # download routes and the content checks in upload_validation.py.
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        return response
+
     # Every JWT issued from here on is a recruiter (User) token - candidates
     # never got their own login in practice (see ApplicationStatusPage /
     # routes/status.py for the phone/confirmation-code alternative that
