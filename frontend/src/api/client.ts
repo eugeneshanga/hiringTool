@@ -147,10 +147,16 @@ export const api = {
   deleteMeetingStage: (jobId: number, templateId: number) =>
     request<void>(`/api/jobs/${jobId}/meeting-stages/${templateId}`, { method: 'DELETE' }),
 
-  listCandidates: (params?: { search?: string; stage?: string; job_id?: number }) => {
+  listCandidates: (params?: {
+    search?: string
+    stage?: string
+    status?: StageProgressStatus
+    job_id?: number
+  }) => {
     const qs = new URLSearchParams()
     if (params?.search) qs.set('search', params.search)
     if (params?.stage) qs.set('stage', params.stage)
+    if (params?.status) qs.set('status', params.status)
     if (params?.job_id) qs.set('job_id', String(params.job_id))
     const s = qs.toString()
     return request<Candidate[]>(`/api/candidates${s ? `?${s}` : ''}`)

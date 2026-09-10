@@ -137,9 +137,10 @@ export type StageProgressStatus =
   | 'No response'
   | 'Needs review'
 
-// A stage-progress summary for whichever meeting stage is "current" for the
-// candidate, surfaced on the list view — the soonest upcoming one, else the
-// most recently touched one.
+// Which meeting stage the candidate is currently on, plus that stage's
+// outcome status — the "Stage" / "Status" pair shown on the list view. The
+// current stage is the furthest one they've reached (scheduled or given a
+// decided status); they advance when the recruiter schedules the next one.
 export interface CurrentStageSummary {
   meeting_stage_template_id: number
   stage_name: string | null

@@ -336,6 +336,12 @@ def test_apply_disqualifying_answer_gets_no_token_and_no_schedule_email(app, cli
         assert candidate.application_token is None
         assert candidate.stage == 'Rejected'
         assert candidate.disqualified_at is not None
+        # A disqualified candidate has no CandidateStageProgress row at all
+        # (never scheduled), so to_detail_dict synthesizes the stage - and
+        # for a rejected candidate that synthesized status is 'No', not the
+        # neutral 'Upcoming' a still-in-progress candidate would show.
+        stages = candidate.to_detail_dict()['stages']
+        assert stages and all(s['status'] == 'No' for s in stages)
     assert mock_email == []  # no scheduling link goes out
 
 

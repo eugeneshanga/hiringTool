@@ -83,16 +83,26 @@ def get_candidates():
             (Candidate.email.ilike(f'%{search}%'))
         )
 
-    stage = request.args.get('stage')
-    if stage:
-        query = query.filter_by(stage=stage)
-
     job_id = request.args.get('job_id')
     if job_id:
         query = query.filter_by(job_id=job_id)
 
-    candidates = query.all()
-    return jsonify([c.to_dict() for c in candidates]), 200
+    # "stage" is now the current meeting-stage name and "status" the current
+    # stage's outcome (Yes/No/Maybe/...) - both come from
+    # _current_stage_summary() rather than a column, so filter in Python
+    # after loading (the candidate list is small).
+    stage_name = request.args.get('stage')
+    status = request.args.get('status')
+    result = []
+    for c in query.all():
+        payload = c.to_dict()
+        summary = payload.get('current_stage')
+        if stage_name and not (summary and summary['stage_name'] == stage_name):
+            continue
+        if status and not (summary and summary['status'] == status):
+            continue
+        result.append(payload)
+    return jsonify(result), 200
 
 
 @candidates_bp.route('/api/candidates/<int:candidate_id>', methods=['GET'])

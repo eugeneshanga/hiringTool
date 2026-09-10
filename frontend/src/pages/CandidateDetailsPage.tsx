@@ -8,6 +8,7 @@ import { CandidateInfoCard } from './candidateDetails/CandidateInfoCard'
 import { StageTabs } from './candidateDetails/StageTabs'
 import { DocumentChecklist } from './candidateDetails/DocumentChecklist'
 import { ScreeningAnswers } from './candidateDetails/ScreeningAnswers'
+import { AdditionalInfo } from './candidateDetails/AdditionalInfo'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { CandidateDetail, CandidateStage } from '../api/types'
 
@@ -104,6 +105,10 @@ export function CandidateDetailsPage() {
         {needsPreScreen(activeStage?.meeting_type ?? '') && (
           <ScreeningAnswers candidate={candidate} onCandidateChange={setCandidate} onError={setError} />
         )}
+        {/* Not gated on the active stage - work eligibility is candidate-level,
+            relevant no matter which stage tab is open (and for candidates
+            added manually, not through the apply form, it starts unset). */}
+        <AdditionalInfo candidate={candidate} onCandidateChange={setCandidate} onError={setError} />
 
         <button className="link-button danger" onClick={handleDelete}>
           Delete candidate
