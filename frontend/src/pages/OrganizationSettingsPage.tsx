@@ -215,7 +215,7 @@ export function OrganizationSettingsPage() {
   }
 
   return (
-    <div>
+    <div className="settings-page">
       <div className="page-header">
         <h1>Organization</h1>
       </div>
