@@ -81,7 +81,7 @@ export function JobsPage() {
         </form>
       )}
 
-      <div className="page-header-actions" style={{ marginBottom: '1rem' }}>
+      <div className="page-header-actions mb-block">
         <input
           placeholder="Search jobs…"
           value={search}

@@ -87,6 +87,20 @@ def create_app(config_overrides=None):
         # it as this app's origin. Backs up as_attachment=True on those
         # download routes and the content checks in upload_validation.py.
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+
+        # Content-Security-Policy (see config.py). The real XSS backstop:
+        # script-src 'self' means an injected inline <script> won't run, and
+        # connect-src 'self' means one that somehow does can't exfiltrate
+        # anything off-origin. Report-only by default until a deploy
+        # confirms the console is clean (CSP_REPORT_ONLY in config.py).
+        csp = app.config.get('CONTENT_SECURITY_POLICY')
+        if csp:
+            name = (
+                'Content-Security-Policy-Report-Only'
+                if app.config.get('CSP_REPORT_ONLY')
+                else 'Content-Security-Policy'
+            )
+            response.headers.setdefault(name, csp)
         return response
 
     # Every JWT issued from here on is a recruiter (User) token - candidates

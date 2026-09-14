@@ -225,7 +225,25 @@ defaults documented above.
 - No frontend test coverage (backend has pytest; nothing exercises the React
   side yet).
 - `CORS(app)` (app.py) has no restricted origin list — flagged, not acted
-  on yet.
+  on yet. (Low risk while auth is a `localStorage` bearer token rather than
+  a cookie — a foreign origin can't attach it — but should still be scoped.)
+- No multi-factor auth on the recruiter login — a working password is the
+  only factor. Rate limiting slows brute force; phishing/reuse is unmitigated.
+  Biggest remaining login-hardening gap.
+- ~~Uploaded files aren't type/size checked~~ — fixed: `upload_validation.py`
+  gates every résumé/onboarding-document upload (public and recruiter) on an
+  extension allowlist + magic-byte content check + size cap, and downloads go
+  out `as_attachment`. Closes a stored-XSS path (an HTML file uploaded as a
+  résumé, executed when a recruiter opened it). Org logo/banner upload is the
+  one remaining unchecked spot — same fix class, not done yet.
+- ~~No Content-Security-Policy~~ — added (`config.py`'s
+  `CONTENT_SECURITY_POLICY` / `CSP_REPORT_ONLY`, emitted in `app.py`'s
+  `_security_headers` hook). Strict `default-src 'self'` with no
+  `unsafe-inline`/`unsafe-eval`. **Ships report-only** (`CSP_REPORT_ONLY`
+  defaults to `true`) so it can't white-screen a deploy — set
+  `CSP_REPORT_ONLY=false` in production once the browser console is confirmed
+  clean to actually enforce it. Also sends `X-Content-Type-Options: nosniff`
+  on every response.
 - ~~Login has no rate limiting~~ — fixed: `POST /api/auth/login` is now
   rate-limited both per-IP (20/hour) and per-email attempted (10/hour,
   `routes/auth.py`'s `_login_email_rate_limit_key`), so neither rotating

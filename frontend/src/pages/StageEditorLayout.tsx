@@ -130,7 +130,7 @@ export function StageEditorLayout() {
         </aside>
         <div className="job-detail-content">
           <div className="stage-header-row">
-            <div className="job-detail-title-row" style={{ marginBottom: 0 }}>
+            <div className="job-detail-title-row mb-0">
               <h1>
                 {template.stage_name}
                 <button type="button" className="icon-button" onClick={openEditStage} aria-label="Edit stage">
