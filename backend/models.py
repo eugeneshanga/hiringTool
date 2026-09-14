@@ -526,9 +526,9 @@ class Candidate(db.Model):
         }
 
     def _current_stage_summary(self):
-        """Which meeting stage the candidate is currently on, plus that
-        stage's outcome status - the pair the candidates list shows as
-        "Stage" / "Status".
+        """Which meeting stage the candidate is currently on, that stage's
+        outcome status, and its assigned interviewer - what the candidates
+        list shows as "Stage" / "Status" / "Interviewer".
 
         The current stage is the furthest one they've reached: the
         highest-ordered meeting stage that's been scheduled or given a
@@ -565,6 +565,12 @@ class Candidate(db.Model):
             if progress
             else ('No' if self.stage == 'Rejected' else 'Upcoming'),
             "scheduled_at": iso_utc(progress.scheduled_at) if progress else None,
+            # Whoever's connected calendar this stage schedules against
+            # (MeetingStageTemplate.interviewer_user_id, set in the stage
+            # editor's scheduler section) - not a per-candidate value, every
+            # candidate on this stage shares the same one. None if the stage
+            # has no interviewer assigned yet.
+            "interviewer_name": current.interviewer.name if current.interviewer else None,
         }
 
     def to_detail_dict(self):

@@ -137,15 +137,19 @@ export type StageProgressStatus =
   | 'No response'
   | 'Needs review'
 
-// Which meeting stage the candidate is currently on, plus that stage's
-// outcome status — the "Stage" / "Status" pair shown on the list view. The
-// current stage is the furthest one they've reached (scheduled or given a
-// decided status); they advance when the recruiter schedules the next one.
+// Which meeting stage the candidate is currently on, that stage's outcome
+// status, and its assigned interviewer — the "Stage" / "Status" /
+// "Interviewer" trio shown on the list view. The current stage is the
+// furthest one they've reached (scheduled or given a decided status); they
+// advance when the recruiter schedules the next one. interviewer_name is
+// the stage's assigned interviewer (MeetingStageTemplate.interviewer_user_id)
+// — shared by every candidate on that stage, not set per-candidate.
 export interface CurrentStageSummary {
   meeting_stage_template_id: number
   stage_name: string | null
   status: StageProgressStatus
   scheduled_at: string | null
+  interviewer_name: string | null
 }
 
 export interface Candidate {

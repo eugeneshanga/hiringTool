@@ -121,14 +121,18 @@ export function CandidatesPage() {
         stageLabel: c.current_stage?.stage_name ?? c.stage,
         statusLabel: c.current_stage?.status ?? c.status,
         scheduledLabel: c.current_stage?.scheduled_at ?? null,
+        // The stage's assigned interviewer (whoever's calendar it schedules
+        // against) - c.interviewer is a legacy free-text field nothing in
+        // the UI ever writes to, kept only as a last-resort fallback.
+        interviewerLabel: c.current_stage?.interviewer_name ?? c.interviewer,
       })),
     [candidates],
   )
 
   function handleExport() {
     const header = ['Candidate', 'Job', 'Stage', 'Updated', 'Scheduled', 'Interviewer', 'Status']
-    const lines = rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel }) =>
-      [c.name, c.job_title ?? '', stageLabel, formatDate(c.updated_at), formatDate(scheduledLabel), c.interviewer ?? '', statusLabel]
+    const lines = rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel, interviewerLabel }) =>
+      [c.name, c.job_title ?? '', stageLabel, formatDate(c.updated_at), formatDate(scheduledLabel), interviewerLabel ?? '', statusLabel]
         .map((v) => csvCell(String(v)))
         .join(','),
     )
@@ -253,7 +257,7 @@ export function CandidatesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel }) => (
+              {rows.map(({ candidate: c, stageLabel, statusLabel, scheduledLabel, interviewerLabel }) => (
                 <tr key={c.id} className="clickable-row" onClick={() => navigate(`/candidates/${c.id}`)}>
                   <td>
                     <div className="candidate-cell">
@@ -268,7 +272,7 @@ export function CandidatesPage() {
                   <td>{stageLabel}</td>
                   <td>{formatDate(c.updated_at)}</td>
                   <td>{formatDate(scheduledLabel)}</td>
-                  <td>{c.interviewer ?? '—'}</td>
+                  <td>{interviewerLabel ?? '—'}</td>
                   <td>
                     <strong>{statusLabel}</strong>
                   </td>

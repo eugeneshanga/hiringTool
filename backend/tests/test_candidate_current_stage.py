@@ -4,7 +4,7 @@ outcome (Yes/No/Maybe/...). Covers _current_stage_summary() and the
 GET /api/candidates ?stage= / ?status= filters that read from it."""
 import pytest
 
-from models import Candidate, MeetingStageTemplate, db
+from models import Candidate, MeetingStageTemplate, User, db
 
 
 @pytest.fixture
@@ -105,3 +105,42 @@ def test_rejected_candidate_reads_as_no_on_the_first_stage(client, auth_headers,
     # No progress rows at all (auto-disqualification path) - still surfaces
     # as 'No', matching the per-stage synthesized fallback.
     assert _current(client, auth_headers, c.id)['status'] == 'No'
+
+
+def test_interviewer_name_is_none_when_the_stage_has_no_interviewer_assigned(
+    client, auth_headers, two_stage_job, candidate_factory
+):
+    c = candidate_factory(job_id=two_stage_job['job_id'])
+    assert _current(client, auth_headers, c.id)['interviewer_name'] is None
+
+
+def test_interviewer_name_follows_whichever_stage_is_current(
+    app, client, auth_headers, two_stage_job, candidate_factory, user
+):
+    """interviewer_name comes from the *stage's* assigned interviewer
+    (MeetingStageTemplate.interviewer_user_id, set in the stage editor's
+    scheduler section) - not typed per-candidate, and it updates
+    automatically as the candidate advances to a stage with a different
+    interviewer assigned."""
+    with app.app_context():
+        second_interviewer = User(
+            first_name='Pat', last_name='Lee', email='pat@example.com', role='recruiter'
+        )
+        second_interviewer.set_password('password123')
+        db.session.add(second_interviewer)
+        db.session.commit()
+
+        interview_template = MeetingStageTemplate.query.get(two_stage_job['interview_id'])
+        interview_template.interviewer_user_id = user.id
+        orientation_template = MeetingStageTemplate.query.get(two_stage_job['orientation_id'])
+        orientation_template.interviewer_user_id = second_interviewer.id
+        db.session.commit()
+
+    c = candidate_factory(job_id=two_stage_job['job_id'])
+    assert _current(client, auth_headers, c.id)['interviewer_name'] == user.name
+
+    client.put(
+        f"/api/candidates/{c.id}/stages/{two_stage_job['orientation_id']}",
+        headers=auth_headers, json={'status': 'Yes'},
+    )
+    assert _current(client, auth_headers, c.id)['interviewer_name'] == 'Pat Lee'
