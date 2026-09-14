@@ -129,7 +129,13 @@ class Config:
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self'; "
-        "img-src 'self' data:; "
+        # blob: - the org logo/banner is fetched via JS (it's behind auth)
+        # and shown as <img src> from a blob: object URL (UserMenu.tsx,
+        # OrganizationSettingsPage.tsx, useOrganizationBranding.ts) rather
+        # than a plain <img src="/api/..."> - a blob: URL for an <img> can
+        # only ever render as a bitmap, never execute, so this doesn't
+        # reopen anything the upload hardening closed.
+        "img-src 'self' data: blob:; "
         "font-src 'self'; "
         "connect-src 'self'; "
         "object-src 'none'; "
