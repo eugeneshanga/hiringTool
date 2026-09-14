@@ -39,8 +39,8 @@ export interface OnboardingItemInput {
 
 const TOKEN_KEY = 'hiringtool_token'
 
-const { getToken, setToken, request, requestForm, requestBlob } = createApiClient(TOKEN_KEY)
-export { getToken, setToken }
+const { getToken, setToken, setUnauthorizedHandler, request, requestForm, requestBlob } = createApiClient(TOKEN_KEY)
+export { getToken, setToken, setUnauthorizedHandler }
 
 /** Saves a blob to disk via a throwaway link click — the standard way to
  * trigger a browser "Save As" for content fetched via JS rather than a URL. */

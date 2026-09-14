@@ -26,6 +26,23 @@ export function createApiClient(tokenKey: string) {
     else localStorage.removeItem(tokenKey)
   }
 
+  // AuthContext registers a handler here on mount, so a token that's expired
+  // (or gone invalid some other way) clears the logged-in user immediately,
+  // no matter which page's request happened to hit it - ProtectedRoute then
+  // redirects to /login on its own very next render, the same path a fresh
+  // page load with no token at all already takes. Only fires when a token
+  // was actually attached to the request that got 401'd (see the `token &&`
+  // checks below) - a plain failed login attempt sends no Authorization
+  // header at all, and isn't a session expiring, just a wrong password.
+  let onUnauthorized: (() => void) | null = null
+  function setUnauthorizedHandler(fn: (() => void) | null) {
+    onUnauthorized = fn
+  }
+  function handleUnauthorized() {
+    setToken(null)
+    onUnauthorized?.()
+  }
+
   async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const token = getToken()
     const headers: Record<string, string> = {
@@ -35,6 +52,7 @@ export function createApiClient(tokenKey: string) {
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+    if (res.status === 401 && token) handleUnauthorized()
 
     if (res.status === 204) return undefined as T
 
@@ -55,6 +73,7 @@ export function createApiClient(tokenKey: string) {
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     const res = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: formData })
+    if (res.status === 401 && token) handleUnauthorized()
     const isJson = res.headers.get('content-type')?.includes('application/json')
     const body = isJson ? await res.json() : undefined
 
@@ -72,6 +91,7 @@ export function createApiClient(tokenKey: string) {
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     const res = await fetch(`${BASE_URL}${path}`, { headers })
+    if (res.status === 401 && token) handleUnauthorized()
     if (!res.ok) {
       let message = `Request failed (${res.status})`
       const isJson = res.headers.get('content-type')?.includes('application/json')
@@ -88,5 +108,5 @@ export function createApiClient(tokenKey: string) {
     return { blob: await res.blob(), filename }
   }
 
-  return { getToken, setToken, request, requestForm, requestBlob }
+  return { getToken, setToken, setUnauthorizedHandler, request, requestForm, requestBlob }
 }
