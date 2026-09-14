@@ -116,3 +116,30 @@ class Config:
     # only in the production database.env, once HTTPS is confirmed actually
     # reachable there.
     FORCE_HTTPS = os.environ.get('FORCE_HTTPS', 'false').lower() == 'true'
+
+    # Content-Security-Policy sent on every response (see app.py's
+    # after_request hook). This is a single same-origin Flask process
+    # serving both the API and the Vite-built SPA, with no CDN scripts and
+    # no inline <script>/<style> in the built index.html, so a strict policy
+    # needs no per-request nonces. Kept as one overridable string so a
+    # single directive can be widened (e.g. an extra connect-src host)
+    # without a code change. Set to '' to drop the header entirely.
+    CONTENT_SECURITY_POLICY = os.environ.get(
+        'CONTENT_SECURITY_POLICY',
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
+    # When true, the policy goes out as Content-Security-Policy-Report-Only:
+    # browsers log violations to the console but don't block anything.
+    # Defaults to true so a first deploy can't white-screen the app on an
+    # unforeseen violation - set CSP_REPORT_ONLY=false in production once the
+    # console is confirmed clean, to actually enforce it.
+    CSP_REPORT_ONLY = os.environ.get('CSP_REPORT_ONLY', 'true').lower() == 'true'

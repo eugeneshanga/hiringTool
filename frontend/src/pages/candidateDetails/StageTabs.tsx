@@ -272,7 +272,7 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
           </div>
 
           {isOrientation ? (
-            <div className="page-header-actions" style={{ marginBottom: '1rem' }}>
+            <div className="page-header-actions mb-block">
               <button type="button" onClick={openReschedule}>
                 Schedule
               </button>
@@ -289,7 +289,7 @@ export function StageTabs({ candidate, onCandidateChange, onError, onActiveStage
               )}
               {candidate.source && <p className="subtle">Source: {candidate.source}</p>}
 
-              <div className="page-header-actions" style={{ marginBottom: '1rem' }}>
+              <div className="page-header-actions mb-block">
                 <button type="button" className="button-secondary" onClick={openCancelModal}>
                   Cancel
                 </button>

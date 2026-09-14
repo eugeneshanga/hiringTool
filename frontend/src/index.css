@@ -1880,6 +1880,18 @@ button:disabled {
   gap: 0.3rem;
 }
 
+/* Bottom-spacing helpers for a handful of spots where a class shared across
+   contexts needs different spacing in one of them. Kept as classes rather
+   than inline style="" attributes so the app's Content-Security-Policy can
+   use a strict style-src (see backend/app.py). */
+.mb-block {
+  margin-bottom: 1rem;
+}
+
+.mb-0 {
+  margin-bottom: 0;
+}
+
 @media (max-width: 720px) {
   .interview-review {
     grid-template-columns: 1fr;

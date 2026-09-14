@@ -157,6 +157,17 @@ that's a separate, manual step outside DirectAdmin entirely.
   option instead - if one exists, it handles this at the Apache level
   directly and doesn't depend on `FORCE_HTTPS` at all.
 
+- `CSP_REPORT_ONLY` — not in local `database.env` (defaults to `true`). The
+  Content-Security-Policy (see `config.py`'s `CONTENT_SECURITY_POLICY`) ships
+  in report-only mode so a first deploy can't white-screen the app on an
+  unforeseen violation. After deploying, open the site in a browser with
+  DevTools -> Console, click through the admin pages and the public
+  careers/apply/status pages, and confirm there are **no** "Content Security
+  Policy" violation messages. Then set `CSP_REPORT_ONLY=false` in
+  `database.env` and restart to actually enforce it. If a violation does show
+  up, widen the offending directive in `CONTENT_SECURITY_POLICY` (e.g. add a
+  host to `connect-src`) rather than disabling the header.
+
 ## Why the layout looks like this
 
 DirectAdmin's Application root expects its startup file
