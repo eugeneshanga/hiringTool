@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from dateutils import parse_datetime
 from models import db, CandidateStageProgress, Interview, Job, Candidate, MeetingStageTemplate
+from routes.apply import _notify_interviewer_scheduled
 from validation import validate_choice
 
 interviews_bp = Blueprint('interviews', __name__)
@@ -192,8 +193,15 @@ def enroll_candidate(interview_id):
             db.session.add(progress)
         progress.status = 'Upcoming'
         progress.scheduled_at = interview.scheduled_start
+        progress.reset_reminders()
         if interview.location:
             progress.location = interview.location
+
+        if interview.job:
+            _notify_interviewer_scheduled(
+                interview.meeting_stage_template, candidate, interview.job, interview.scheduled_start,
+                meeting_link=interview.meeting_link or interview.location,
+            )
 
     db.session.commit()
     return jsonify(interview.to_dict()), 200

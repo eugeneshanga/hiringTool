@@ -112,6 +112,12 @@ DirectAdmin's Git integration doesn't support this deployment's subdomain).
   encrypting stored refresh tokens at rest — generate one with
   `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`;
   rotating it invalidates every stored refresh token).
+- `database.env` also holds RingCentral OAuth config, from a private app
+  registered in the RingCentral Developer Console (3-legged auth-code flow,
+  "Video" application scope): `RINGCENTRAL_CLIENT_ID`,
+  `RINGCENTRAL_CLIENT_SECRET`, `RINGCENTRAL_REDIRECT_URI`. Reuses
+  `CALENDAR_FRONTEND_REDIRECT_URL` and `CALENDAR_ENCRYPTION_KEY` above
+  rather than duplicating either.
 - `database.env` also controls outbound email (see `backend/email_sender.py`):
   `EMAIL_PROVIDER` — `console` (default; logs the email instead of sending,
   no external account needed), `postmark`, or `resend`. Both real providers
@@ -190,6 +196,24 @@ defaults documented above.
   (`scheduled_jobs.send_due_rejection_emails`). Once every required
   onboarding item for a stage has a submission, `Yes - Awaiting information`
   advances itself to `Yes - Information received` automatically.
+- **Interviewer notifications** — a meeting stage's assigned interviewer
+  (`MeetingStageTemplate.interviewer_user_id`, the same person the live-
+  calendar scheduling books against) gets emailed at two points: the moment
+  a candidate qualifies and is sent a scheduling link (`POST /api/apply`),
+  and the moment any of them books a real time against that interviewer's
+  stage - self-service (`POST /api/apply/<token>/submit`), recruiter-
+  initiated (`.../book`, the plain manual reschedule path in
+  `update_stage_progress`), or session enrollment (`.../enroll`). On top of
+  that, `scheduled_jobs.send_due_interview_reminders` emails the interviewer
+  again at three lead times before the scheduled time - 1 day, 4 hours, and
+  1 hour out (`CandidateStageProgress.reminder_1day_sent_at`/`_4hr_sent_at`/
+  `_1hr_sent_at` track which have gone out; a reschedule clears all three so
+  they re-fire against the new time - see `reset_reminders()`). Every one of
+  these is silently skipped if the stage has no interviewer assigned -
+  nothing's broken, that stage just isn't wired up for it. Native Outlook
+  calendar reminders weren't used for this - a Graph calendar event only
+  supports one reminder time, not three, so all of this runs as ordinary
+  app-sent email instead.
 - **Home / Upcoming** — scheduled interview sessions (1:1 or capacity-limited
   group sessions like an orientation), with enroll/unenroll per candidate.
   Enrolling a candidate automatically advances their stage to "Interview"
@@ -208,11 +232,35 @@ defaults documented above.
   (Graph's `calendar/getSchedule`) bounded to the org's configured working
   hours/timezone/days (Organization Settings), and booking (public apply
   flow or a recruiter booking a stage directly from a candidate's page)
-  creates a real calendar event via Graph. The actual meeting link
-  candidates and interviewers see isn't calendar-generated, though — each
-  `User` sets their own static video-meeting link (RingCentral in practice)
-  on their Profile page, and that's what goes out in confirmation
-  emails/status pages/the calendar event's location.
+  creates a real calendar event via Graph. The meeting link that goes into
+  that event's location (and confirmation emails/status pages) is a real
+  per-interview RingCentral Video meeting when the interviewer has
+  RingCentral connected (see below) - falling back to their own static
+  personal_meeting_link, set on their Profile page, when they don't.
+- **RingCentral connection** — same connect/disconnect/status shape as the
+  Microsoft Calendar connection above (`ringcentral_video.py` /
+  `routes/ringcentral_auth.py`, `GET /api/auth/ringcentral/connect` →
+  RingCentral consent → `.../callback`, `DELETE .../disconnect`, `GET
+  .../status`), independently connected per `User`. What it buys over the
+  old static personal-link-only setup: every booking (`submit_application`,
+  `book_stage_slot`) creates a real, unique RingCentral Video meeting
+  (`type: 'Scheduled'`, `ringcentral_video.create_meeting`) and stores its
+  id on `Interview.ringcentral_meeting_id` - not reused across interviews,
+  so a recording can be matched back to the exact candidate it belongs to
+  afterward (the old shared static link couldn't support that at all).
+  `scheduled_jobs.fetch_due_interview_recordings` checks for a finished
+  interview's recording (30 min to 14 days after it ended) and attaches it
+  to the candidate's stage automatically, exactly like a manually-uploaded
+  recording (`routes/candidates.py`'s `upload_recording` writes the same two
+  columns) - no frontend change needed for it to show up. Falls back
+  silently to the interviewer's static link at every step when they haven't
+  connected RingCentral, or RingCentral is unreachable, same fail-safe
+  posture as the rest of this app's optional integrations. Two things worth
+  knowing: RingCentral's own docs mark this Video REST API as **beta** (no
+  backwards-compatibility guarantee), and RingCentral refresh tokens are
+  short-lived (~7 days, rotating on every use) unlike Microsoft's - an
+  interviewer who goes quiet for over a week can end up needing to
+  reconnect from their Profile page.
 
 ## Known gaps
 

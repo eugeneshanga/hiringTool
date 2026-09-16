@@ -36,6 +36,15 @@ def mock_email(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def mock_interviewer_email(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        apply_module, 'send_interviewer_application_email', lambda **kwargs: calls.append(kwargs) or True
+    )
+    return calls
+
+
 def _resume_file(name='resume.pdf'):
     return (io.BytesIO(b'%PDF-1.4 fake resume content'), name)
 
@@ -233,6 +242,34 @@ def test_dedupe_no_ops_when_a_live_application_already_exists(app, client, job, 
     assert mock_email == []  # no second email for a no-op
 
 
+def test_can_reapply_after_being_rejected_even_with_time_left_on_the_old_token(app, client, job, mock_email):
+    """A candidate rejected by a recruiter after initially qualifying
+    (routes/candidates.py's update_stage_progress cascade) keeps their
+    original application_token - it's never cleared on rejection. Found
+    live: without excluding disqualified_at, this candidate reads as a
+    still-open duplicate application and a real re-apply attempt gets
+    silently swallowed, indistinguishable from success."""
+    with app.app_context():
+        rejected = Candidate(
+            name='Jane Applicant', email='jane@example.com', job_id=job.id,
+            application_token='old-token', application_token_expires_at=datetime.utcnow() + timedelta(days=8),
+            stage='Rejected', disqualified_at=datetime.utcnow(),
+        )
+        db.session.add(rejected)
+        db.session.commit()
+
+    resp = _post_apply(client, job_id=job.id)
+
+    assert resp.status_code == 200
+    with app.app_context():
+        candidates = Candidate.query.filter_by(job_id=job.id, email='jane@example.com').all()
+        assert len(candidates) == 2
+        new_candidate = next(c for c in candidates if c.application_token != 'old-token')
+        assert new_candidate.disqualified_at is None
+        assert new_candidate.application_token is not None
+    assert len(mock_email) == 1  # the new application's schedule-interview email did go out
+
+
 def test_reapplies_after_the_previous_token_has_expired(app, client, job):
     with app.app_context():
         expired = Candidate(
@@ -321,6 +358,45 @@ def test_apply_qualifying_answer_gets_a_token_and_the_schedule_email(app, client
         assert candidate.stage == 'Applied'
         assert candidate.disqualified_at is None
     assert len(mock_email) == 1
+
+
+def test_qualifying_application_notifies_the_stages_interviewer(app, client, job, user, mock_interviewer_email):
+    with app.app_context():
+        db.session.add(MeetingStageTemplate(
+            job_id=job.id, meeting_type='Virtual interview', stage_name='CHHA Interview',
+            sort_order=0, interviewer_user_id=user.id,
+        ))
+        db.session.commit()
+
+    resp = _post_apply(client, job_id=job.id)
+
+    assert resp.status_code == 200
+    assert len(mock_interviewer_email) == 1
+    assert mock_interviewer_email[0]['to_email'] == user.email
+    assert mock_interviewer_email[0]['candidate_name'] == 'Jane Applicant'
+    assert mock_interviewer_email[0]['stage_name'] == 'CHHA Interview'
+
+
+def test_application_to_a_stage_with_no_interviewer_assigned_sends_nothing_extra(app, client, job, mock_interviewer_email):
+    # job has no meeting stages at all here (the bare `job` fixture) -
+    # _scheduling_stage_for finds nothing to notify, and nothing errors.
+    resp = _post_apply(client, job_id=job.id)
+    assert resp.status_code == 200
+    assert mock_interviewer_email == []
+
+
+def test_disqualifying_application_does_not_notify_the_interviewer(app, client, job, user, mock_interviewer_email):
+    with app.app_context():
+        db.session.add(MeetingStageTemplate(
+            job_id=job.id, meeting_type='Virtual interview', stage_name='CHHA Interview',
+            sort_order=0, interviewer_user_id=user.id,
+        ))
+        db.session.commit()
+    question_id = _add_multiple_choice_question(app, job, qualified_answers=['Yes'])
+
+    _post_apply(client, job_id=job.id, answers=json.dumps([{"question_id": question_id, "answer_text": "No"}]))
+
+    assert mock_interviewer_email == []
 
 
 def test_apply_disqualifying_answer_gets_no_token_and_no_schedule_email(app, client, job, mock_email):

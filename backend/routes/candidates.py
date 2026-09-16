@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from flask_jwt_extended import jwt_required
 
 from dateutils import parse_datetime
-from email_sender import send_confirmation_email
+from email_sender import send_confirmation_email, send_interviewer_scheduled_email
 from file_storage import candidate_file_path, delete_candidate_file, delete_candidate_files, save_candidate_file
 from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, create_event, delete_event
 # Reused rather than reimplemented - _available_slots_for_stage and
@@ -17,7 +17,12 @@ from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, cr
 # import anything from this module). See book_stage_slot below, which
 # mirrors apply.py's submit_application for a recruiter-initiated booking
 # instead of the public token-based one.
-from routes.apply import _available_slots_for_stage, _unique_confirmation_code
+from routes.apply import (
+    _available_slots_for_stage,
+    _create_ringcentral_meeting_or_fallback,
+    _notify_interviewer_scheduled,
+    _unique_confirmation_code,
+)
 from upload_validation import ONBOARDING_EXTENSIONS, RESUME_EXTENSIONS, reject_bad_upload
 from validation import validate_choice
 from models import (
@@ -75,7 +80,9 @@ def _reject_if_too_large(file, max_size_bytes):
 @candidates_bp.route('/api/candidates', methods=['GET'])
 @jwt_required()
 def get_candidates():
-    query = Candidate.query
+    # Newest applicant first (a "stack": last in is on top) rather than the
+    # DB's default insertion order, which put the oldest candidate on top.
+    query = Candidate.query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 
     search = request.args.get('search')
     if search:
@@ -401,6 +408,8 @@ def update_stage_progress(candidate_id, template_id):
             candidate.stage = 'Rejected'
             if not candidate.disqualified_at:
                 candidate.disqualified_at = datetime.utcnow()
+    if 'location' in data:
+        progress.location = data['location']
     if 'scheduled_at' in data:
         raw = data['scheduled_at']
         if raw:
@@ -408,10 +417,16 @@ def update_stage_progress(candidate_id, template_id):
                 progress.scheduled_at = parse_datetime(raw, 'scheduled_at')
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
+            progress.reset_reminders()
+            # Applied above (in this same request, if present) so a
+            # scheduled_at+location combo sent together reaches the
+            # interviewer with the new link, not whatever was there before.
+            _notify_interviewer_scheduled(
+                template, candidate, candidate.job, progress.scheduled_at, meeting_link=progress.location,
+            )
         else:
             progress.scheduled_at = None
-    if 'location' in data:
-        progress.location = data['location']
+            progress.reset_reminders()
     if 'notes' in data:
         progress.notes = data['notes']
     if 'cancellation_reason' in data:
@@ -577,10 +592,19 @@ def book_stage_slot(candidate_id, template_id):
     if (slot_start, slot_end) not in current_slots:
         return jsonify({"error": "that time is no longer available - please pick another"}), 409
 
-    meeting_link = interviewer.personal_meeting_link
     existing_interview = next(
         (i for i in candidate.interviews if i.meeting_stage_template_id == template.id), None
     )
+    if existing_interview and existing_interview.ringcentral_meeting_id:
+        # Rebooking (a reschedule) - same room, new time. No need to create
+        # a fresh RingCentral meeting just because the schedule changed.
+        ringcentral_meeting_id = existing_interview.ringcentral_meeting_id
+        meeting_link = existing_interview.meeting_link
+    else:
+        ringcentral_meeting_id, meeting_link = _create_ringcentral_meeting_or_fallback(
+            interviewer, topic=f"{template.stage_name} - {candidate.name}",
+            fallback_link=interviewer.personal_meeting_link,
+        )
 
     try:
         calendar_event_id = create_event(
@@ -624,6 +648,7 @@ def book_stage_slot(candidate_id, template_id):
                 confirmation_code=confirmation_code,
                 meeting_link=meeting_link,
                 calendar_event_id=calendar_event_id,
+                ringcentral_meeting_id=ringcentral_meeting_id,
             )
             interview.candidates.append(candidate)
             db.session.add(interview)
@@ -637,6 +662,7 @@ def book_stage_slot(candidate_id, template_id):
         progress.status = 'Upcoming'
         progress.scheduled_at = slot_start
         progress.location = meeting_link
+        progress.reset_reminders()
 
         db.session.commit()
     except Exception:
@@ -660,5 +686,14 @@ def book_stage_slot(candidate_id, template_id):
         )
     except Exception:
         current_app.logger.exception("Failed to send confirmation email for candidate %s", candidate.id)
+
+    try:
+        send_interviewer_scheduled_email(
+            to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
+            job_title=candidate.job.title, stage_name=template.stage_name, scheduled_start=slot_start,
+            meeting_link=meeting_link,
+        )
+    except Exception:
+        current_app.logger.exception("Failed to send interviewer scheduled-notice email for candidate %s", candidate.id)
 
     return jsonify(candidate.to_detail_dict()), 200

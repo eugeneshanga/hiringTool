@@ -7,7 +7,7 @@ import { usePageTitle } from '../hooks/usePageTitle'
 export function LoginPage() {
   usePageTitle('Sign In - HiringTool')
 
-  const { user, login } = useAuth()
+  const { user, login, sessionExpired } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [email, setEmail] = useState('')
@@ -58,7 +58,16 @@ export function LoginPage() {
             required
           />
         </label>
-        {error && <div className="error-banner">{error}</div>}
+        {/* A submit error is more specific/recent than a stale expiry
+            notice from before this attempt - it takes priority rather than
+            showing both at once. */}
+        {error ? (
+          <div className="error-banner">{error}</div>
+        ) : (
+          sessionExpired && (
+            <div className="error-banner">Your session expired — please sign in again.</div>
+          )
+        )}
         <button type="submit" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>

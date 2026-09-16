@@ -37,6 +37,22 @@ export interface MicrosoftCalendarStatus {
   account_email?: string
 }
 
+// For the RingCentral connection (ringcentral_video.py /
+// routes/ringcentral_auth.py) that lets a real per-interview meeting be
+// created instead of an interviewer's static personal_meeting_link, so its
+// recording can later be matched back to the right candidate. Unlike
+// MicrosoftCalendarStatus above, `connected` alone doesn't mean the
+// connection still works - RingCentral's refresh tokens are short-lived
+// and rotate on every use, so a connection can go stale silently.
+// `healthy` actually attempts a token refresh server-side; false means
+// RingCentral explicitly rejected it (reconnecting is the fix) - absent
+// when `connected` is false (nothing to check).
+export interface RingCentralStatus {
+  connected: boolean
+  account_email?: string
+  healthy?: boolean
+}
+
 // This single-tenant app's one Organization row - name plus whether a
 // logo/banner is set (the images themselves are fetched separately as blobs
 // via GET /api/organization/logo|banner, same pattern as candidate
@@ -137,15 +153,19 @@ export type StageProgressStatus =
   | 'No response'
   | 'Needs review'
 
-// Which meeting stage the candidate is currently on, plus that stage's
-// outcome status — the "Stage" / "Status" pair shown on the list view. The
-// current stage is the furthest one they've reached (scheduled or given a
-// decided status); they advance when the recruiter schedules the next one.
+// Which meeting stage the candidate is currently on, that stage's outcome
+// status, and its assigned interviewer — the "Stage" / "Status" /
+// "Interviewer" trio shown on the list view. The current stage is the
+// furthest one they've reached (scheduled or given a decided status); they
+// advance when the recruiter schedules the next one. interviewer_name is
+// the stage's assigned interviewer (MeetingStageTemplate.interviewer_user_id)
+// — shared by every candidate on that stage, not set per-candidate.
 export interface CurrentStageSummary {
   meeting_stage_template_id: number
   stage_name: string | null
   status: StageProgressStatus
   scheduled_at: string | null
+  interviewer_name: string | null
 }
 
 export interface Candidate {

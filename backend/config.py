@@ -50,6 +50,17 @@ class Config:
     MICROSOFT_TENANT = os.environ.get('MICROSOFT_TENANT', 'common')
     CALENDAR_FRONTEND_REDIRECT_URL = os.environ.get('CALENDAR_FRONTEND_REDIRECT_URL', 'http://localhost:5173/profile')
 
+    # RingCentral OAuth (see database.env), via a RingCentral Developer
+    # Console app registration (private, 3-legged auth-code flow, "Video"
+    # scope) - same "left unset, fails loudly in routes/ringcentral_auth.py
+    # instead" reasoning as the Microsoft settings above. Reuses
+    # CALENDAR_FRONTEND_REDIRECT_URL (same Profile page) and
+    # CALENDAR_ENCRYPTION_KEY (same Fernet key encrypting refresh tokens at
+    # rest, for both providers) rather than duplicating either.
+    RINGCENTRAL_CLIENT_ID = os.environ.get('RINGCENTRAL_CLIENT_ID')
+    RINGCENTRAL_CLIENT_SECRET = os.environ.get('RINGCENTRAL_CLIENT_SECRET')
+    RINGCENTRAL_REDIRECT_URI = os.environ.get('RINGCENTRAL_REDIRECT_URI')
+
     # Fernet key encrypting CalendarConnection.refresh_token at rest.
     CALENDAR_ENCRYPTION_KEY = os.environ.get('CALENDAR_ENCRYPTION_KEY')
 
@@ -129,7 +140,13 @@ class Config:
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self'; "
-        "img-src 'self' data:; "
+        # blob: - the org logo/banner is fetched via JS (it's behind auth)
+        # and shown as <img src> from a blob: object URL (UserMenu.tsx,
+        # OrganizationSettingsPage.tsx, useOrganizationBranding.ts) rather
+        # than a plain <img src="/api/..."> - a blob: URL for an <img> can
+        # only ever render as a bitmap, never execute, so this doesn't
+        # reopen anything the upload hardening closed.
+        "img-src 'self' data: blob:; "
         "font-src 'self'; "
         "connect-src 'self'; "
         "object-src 'none'; "

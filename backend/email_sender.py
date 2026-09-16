@@ -349,6 +349,77 @@ def send_confirmation_email(
     return _send(to_email, subject, text_body)
 
 
+# --- interviewer notifications ------------------------------------------
+
+def send_interviewer_application_email(to_email, interviewer_name, candidate_name, job_title, stage_name):
+    """Sent to a stage's assigned interviewer (MeetingStageTemplate.
+    interviewer_user_id) the moment a candidate qualifies and gets a
+    scheduling link (routes/apply.py's apply()) - lets them know someone's
+    about to show up in their pipeline before a time is even picked. Never
+    sent for a disqualified candidate - they never reach a stage/interviewer
+    at all (see that route's module docstring)."""
+    subject = f"New applicant: {candidate_name} - {job_title}"
+    text_body = (
+        f"Hi {interviewer_name},\n\n"
+        f"{candidate_name} just applied for the {job_title} position and qualified "
+        f"to schedule a {stage_name}. They've been sent a link to pick a time - "
+        f"you'll get another email once they've booked one.\n\n"
+        f"- HiringTool\n"
+        f"(This is an automated message - please don't reply to this email.)\n"
+    )
+    return _send(to_email, subject, text_body)
+
+
+def send_interviewer_scheduled_email(
+    to_email, interviewer_name, candidate_name, job_title, stage_name, scheduled_start, meeting_link=None,
+):
+    """Sent to a stage's assigned interviewer the moment a candidate books a
+    real slot against it - every path that can set a real scheduled_at:
+    routes/apply.py's submit_application (candidate self-service),
+    routes/candidates.py's book_stage_slot/update_stage_progress (recruiter-
+    initiated), routes/interviews.py's enroll_candidate (session enrollment).
+    meeting_link is whatever CandidateStageProgress.location/Interview.
+    meeting_link holds at notify time - the freshly-created RingCentral
+    meeting when one was made, the interviewer's static personal link on
+    fallback, or None for a path that never set one (e.g. a stage without
+    live-calendar scheduling) - omitted from the email entirely then rather
+    than printing a blank "Join at: " line."""
+    subject = f"{candidate_name} scheduled: {job_title} - {stage_name}"
+    link_line = f"Join at: {meeting_link}\n\n" if meeting_link else ""
+    text_body = (
+        f"Hi {interviewer_name},\n\n"
+        f"{candidate_name} has scheduled their {stage_name} for the {job_title} position.\n\n"
+        f"When: {_format_scheduled_when(scheduled_start)}\n\n"
+        f"{link_line}"
+        f"- HiringTool\n"
+        f"(This is an automated message - please don't reply to this email.)\n"
+    )
+    return _send(to_email, subject, text_body)
+
+
+def send_interviewer_reminder_email(
+    to_email, interviewer_name, candidate_name, job_title, stage_name, scheduled_start, lead_time_label,
+    meeting_link=None,
+):
+    """Sent by scheduled_jobs.send_due_interview_reminders at each of the
+    three lead times before a scheduled stage (1 day / 4 hours / 1 hour) -
+    lead_time_label is the only thing that actually differs between those
+    three calls (e.g. "1 day", "4 hours", "1 hour"). meeting_link - see
+    send_interviewer_scheduled_email above."""
+    subject = f"Reminder: {candidate_name} in {lead_time_label} - {job_title}"
+    link_line = f"Join at: {meeting_link}\n\n" if meeting_link else ""
+    text_body = (
+        f"Hi {interviewer_name},\n\n"
+        f"This is a reminder that your {stage_name} with {candidate_name} for the "
+        f"{job_title} position is coming up in {lead_time_label}.\n\n"
+        f"When: {_format_scheduled_when(scheduled_start)}\n\n"
+        f"{link_line}"
+        f"- HiringTool\n"
+        f"(This is an automated message - please don't reply to this email.)\n"
+    )
+    return _send(to_email, subject, text_body)
+
+
 def send_rejection_email(to_email, candidate_name, job_title):
     """Sent by scheduled_jobs.send_due_rejection_emails, some delay after a
     candidate's screening answers were auto-evaluated as disqualifying (see

@@ -75,6 +75,15 @@ def mock_confirmation_email(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def mock_interviewer_scheduled_email(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        apply_module, 'send_interviewer_scheduled_email', lambda **kwargs: calls.append(kwargs) or True
+    )
+    return calls
+
+
 # --- GET /api/apply/<token> ---------------------------------------------------
 
 def test_get_application_404_for_unknown_token(client):
@@ -231,7 +240,8 @@ def test_submit_503_when_calendar_event_creation_fails(app, client, applied_cand
 
 
 def test_submit_success_books_everything_and_sends_confirmation(
-    app, client, applied_candidate, schedulable_stage, monkeypatch, mock_confirmation_email,
+    app, client, applied_candidate, schedulable_stage, monkeypatch,
+    mock_confirmation_email, mock_interviewer_scheduled_email,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
     monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
@@ -263,6 +273,80 @@ def test_submit_success_books_everything_and_sends_confirmation(
     assert len(mock_confirmation_email) == 1
     assert mock_confirmation_email[0]['confirmation_code'] == body['confirmation_code']
     assert mock_confirmation_email[0]['to_email'] == 'jane@example.com'
+
+    assert len(mock_interviewer_scheduled_email) == 1
+    assert mock_interviewer_scheduled_email[0]['to_email'] == 'test@example.com'  # schedulable_stage's interviewer
+    assert mock_interviewer_scheduled_email[0]['candidate_name'] == 'Jane Applicant'
+    assert mock_interviewer_scheduled_email[0]['scheduled_start'] == FAR_FUTURE
+    assert mock_interviewer_scheduled_email[0]['meeting_link'] == RINGCENTRAL_LINK
+
+
+def test_submit_creates_a_real_ringcentral_meeting_when_interviewer_connected(
+    app, client, applied_candidate, schedulable_stage, monkeypatch, mock_interviewer_scheduled_email,
+):
+    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
+    monkeypatch.setattr(
+        apply_module, 'create_meeting',
+        lambda user, topic: ('rc-meeting-1', 'https://v.ringcentral.com/join/real-meeting'),
+    )
+
+    resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
+
+    assert resp.status_code == 201
+    # the real per-interview meeting link, not the interviewer's static one
+    assert resp.get_json()['meeting_link'] == 'https://v.ringcentral.com/join/real-meeting'
+    with app.app_context():
+        interview = Interview.query.filter_by(calendar_event_id='ms-event-1').first()
+        assert interview.ringcentral_meeting_id == 'rc-meeting-1'
+        assert interview.meeting_link == 'https://v.ringcentral.com/join/real-meeting'
+
+    # the interviewer's own notification email must carry the freshly-created
+    # meeting link too, not just the API response / candidate's email
+    assert mock_interviewer_scheduled_email[0]['meeting_link'] == 'https://v.ringcentral.com/join/real-meeting'
+
+
+def test_submit_falls_back_to_the_static_link_when_ringcentral_unavailable(
+    app, client, applied_candidate, schedulable_stage, monkeypatch,
+):
+    """schedulable_stage's interviewer has no RingCentralConnection at all
+    here (only a CalendarConnection) - create_meeting should raise
+    RingCentralNotConnectedError, and booking should still succeed using
+    the interviewer's static personal_meeting_link, same as before this
+    integration existed."""
+    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
+
+    resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
+
+    assert resp.status_code == 201
+    assert resp.get_json()['meeting_link'] == RINGCENTRAL_LINK
+    with app.app_context():
+        interview = Interview.query.filter_by(calendar_event_id='ms-event-1').first()
+        assert interview.ringcentral_meeting_id is None
+        assert interview.meeting_link == RINGCENTRAL_LINK
+
+
+def test_submit_logs_a_warning_when_the_ringcentral_connection_is_stale(
+    app, client, applied_candidate, schedulable_stage, monkeypatch, caplog,
+):
+    """A previously-working connection that's gone stale (RingCentralTokenError)
+    is worth a log line, unlike the plain "never connected" case above -
+    booking still falls back and succeeds either way."""
+    from ringcentral_video import RingCentralTokenError
+
+    def _stale(user, topic):
+        raise RingCentralTokenError('RingCentral token refresh failed (400): invalid_grant')
+    monkeypatch.setattr(apply_module, 'create_meeting', _stale)
+    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
+
+    with caplog.at_level('WARNING'):
+        resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
+
+    assert resp.status_code == 201
+    assert resp.get_json()['meeting_link'] == RINGCENTRAL_LINK
+    assert any('appears stale' in r.message for r in caplog.records)
 
 
 def test_submit_db_failure_after_booking_cleans_up_the_calendar_event(

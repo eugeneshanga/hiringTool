@@ -55,6 +55,15 @@ def mock_confirmation_email(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def mock_interviewer_scheduled_email(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        candidates_module, 'send_interviewer_scheduled_email', lambda **kwargs: calls.append(kwargs) or True
+    )
+    return calls
+
+
 # --- GET .../available-slots ---------------------------------------------------
 
 def test_available_slots_requires_auth(client, candidate, meeting_stage):
@@ -133,7 +142,8 @@ def test_book_409_when_slot_no_longer_available(client, auth_headers, candidate,
 
 
 def test_book_creates_a_real_interview_and_calendar_event(
-    app, client, auth_headers, candidate, schedulable_stage, monkeypatch, mock_confirmation_email,
+    app, client, auth_headers, candidate, schedulable_stage, monkeypatch,
+    mock_confirmation_email, mock_interviewer_scheduled_email,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
     monkeypatch.setattr(candidates_module, 'create_event', lambda *a, **k: 'ms-event-1')
@@ -160,6 +170,9 @@ def test_book_creates_a_real_interview_and_calendar_event(
         assert progress.status == 'Upcoming'
 
     assert len(mock_confirmation_email) == 1
+    assert len(mock_interviewer_scheduled_email) == 1
+    assert mock_interviewer_scheduled_email[0]['to_email'] == 'test@example.com'  # schedulable_stage's interviewer
+    assert mock_interviewer_scheduled_email[0]['meeting_link'] == 'https://v.ringcentral.com/join/199431569'
 
 
 def test_rebooking_updates_the_existing_interview_in_place(

@@ -51,7 +51,13 @@ import requests
 from flask import Blueprint, current_app, jsonify, request
 
 from dateutils import parse_datetime
-from email_sender import is_plausible_email, send_confirmation_email, send_schedule_interview_email
+from email_sender import (
+    is_plausible_email,
+    send_confirmation_email,
+    send_interviewer_application_email,
+    send_interviewer_scheduled_email,
+    send_schedule_interview_email,
+)
 from extensions import limiter
 from file_storage import save_candidate_file
 from microsoft_calendar import (
@@ -60,6 +66,11 @@ from microsoft_calendar import (
     create_event,
     delete_event,
     get_free_slots,
+)
+from ringcentral_video import (
+    RingCentralNotConnectedError,
+    RingCentralTokenError,
+    create_meeting,
 )
 from upload_validation import RESUME_EXTENSIONS, reject_bad_upload
 from models import (
@@ -292,12 +303,18 @@ def apply():
     # Dedupe: an existing, still-live application for this email+job means
     # this candidate already has a valid apply link out there (or is mid
     # scheduling) - no-op rather than creating a second Candidate or sending
-    # a second email. A previously-*disqualified* candidate is never "live"
-    # here (see below - they never get an application_token at all), so
-    # this doesn't block someone from re-applying after a rejection.
+    # a second email. disqualified_at.is_(None) is what actually keeps a
+    # rejected candidate from being treated as "live" here - a candidate
+    # auto-disqualified at apply time never gets a token in the first place
+    # (see the `else` branch below), but one rejected *later* by a
+    # recruiter (routes/candidates.py's update_stage_progress cascade) still
+    # has their original, unexpired token sitting there - without this
+    # check, that reads as a still-open duplicate application and silently
+    # swallows every attempt to re-apply, indistinguishable from success.
     existing = Candidate.query.filter_by(job_id=job_id, email=email).filter(
         Candidate.application_token.isnot(None),
         Candidate.application_token_expires_at > datetime.utcnow(),
+        Candidate.disqualified_at.is_(None),
     ).first()
     if existing:
         return _generic_success_response()
@@ -365,6 +382,27 @@ def apply():
             current_app.logger.exception(
                 "Failed to send schedule-interview email for candidate %s", candidate.id
             )
+
+        # Same best-effort reasoning as above - lets the stage's assigned
+        # interviewer know someone's in their pipeline before a time is even
+        # picked. Silently skipped if the stage has no interviewer assigned
+        # (nothing has broken; that stage just isn't wired up for this yet -
+        # same fail-safe as _available_slots_for_stage).
+        stage = _scheduling_stage_for(job)
+        interviewer = User.query.get(stage.interviewer_user_id) if stage and stage.interviewer_user_id else None
+        if interviewer:
+            try:
+                send_interviewer_application_email(
+                    to_email=interviewer.email,
+                    interviewer_name=interviewer.name,
+                    candidate_name=candidate.name,
+                    job_title=job.title,
+                    stage_name=stage.stage_name,
+                )
+            except Exception:
+                current_app.logger.exception(
+                    "Failed to send interviewer application-notice email for candidate %s", candidate.id
+                )
     else:
         # No email sent inline here - scheduled_jobs.send_due_rejection_emails
         # picks this up once REJECTION_EMAIL_DELAY_MINUTES has passed. stage
@@ -376,6 +414,79 @@ def apply():
         db.session.commit()
 
     return _generic_success_response()
+
+
+def _create_ringcentral_meeting_or_fallback(interviewer, topic, fallback_link):
+    """Creates a real per-interview RingCentral Video meeting on the
+    interviewer's connected account (ringcentral_video.create_meeting), so
+    its recording can later be matched back to this exact interview - see
+    that module's docstring for why the interviewer's old static
+    personal_meeting_link couldn't support that. Falls back to
+    `fallback_link` (the interviewer's static link - the pre-existing
+    behavior) whenever they haven't connected RingCentral, or RingCentral
+    is unreachable/rejects the request right now - a candidate booking an
+    interview should never fail just because this optional upgrade isn't
+    available. Returns (ringcentral_meeting_id, meeting_link) - the id is
+    None whenever the fallback was used, and Interview.ringcentral_meeting_id
+    should be set to it either way (null is a valid, meaningful value
+    there, not a bug).
+
+    Logs a warning for the two failure modes actually worth someone
+    noticing - a stale/revoked connection, or RingCentral being briefly
+    unreachable - but stays silent for the plain "never connected" case,
+    which is just a normal, not-yet-set-up state, not a problem. See also
+    routes/ringcentral_auth.py's ringcentral_status, which surfaces the
+    same staleness proactively on the Profile page rather than only in
+    the logs at booking time."""
+    try:
+        meeting_id, join_url = create_meeting(interviewer, topic)
+        if join_url:
+            return meeting_id, join_url
+    except RingCentralNotConnectedError:
+        pass
+    except RingCentralTokenError:
+        current_app.logger.warning(
+            "RingCentral connection for interviewer %s appears stale (token refresh was "
+            "rejected) - falling back to their static meeting link", interviewer.id,
+        )
+    except requests.RequestException:
+        current_app.logger.warning(
+            "RingCentral was unreachable while creating a meeting for interviewer %s - "
+            "falling back to their static meeting link", interviewer.id,
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Unexpected error creating RingCentral meeting for interviewer %s", interviewer.id
+        )
+    return None, fallback_link
+
+
+def _notify_interviewer_scheduled(template, candidate, job, scheduled_start, meeting_link=None):
+    """Best-effort notification to a stage's assigned interviewer that a
+    candidate just got a real time booked against it - shared by every path
+    that can set a real scheduled_at: this module's submit_application
+    (which resolves its own `interviewer` inline, since it already needs it
+    for the calendar call, so doesn't go through this), routes/candidates.py's
+    book_stage_slot (same), update_stage_progress (the plain manual-reschedule
+    path, for a stage without live-calendar scheduling), and routes/
+    interviews.py's enroll_candidate (session enrollment). Silently does
+    nothing if the stage has no interviewer assigned - nothing's broken,
+    that stage just isn't wired up for this yet."""
+    if not template.interviewer_user_id:
+        return
+    interviewer = User.query.get(template.interviewer_user_id)
+    if not interviewer:
+        return
+    try:
+        send_interviewer_scheduled_email(
+            to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
+            job_title=job.title, stage_name=template.stage_name, scheduled_start=scheduled_start,
+            meeting_link=meeting_link,
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Failed to send interviewer scheduled-notice email for candidate %s", candidate.id
+        )
 
 
 # --- prescreen + scheduling page ---------------------------------------------
@@ -511,10 +622,15 @@ def submit_application(token):
     if (slot_start, slot_end) not in current_slots:
         return jsonify({"error": "that time is no longer available - please pick another"}), 409
 
-    # The interviewer's own static RingCentral link, not one generated
-    # per-event by the calendar provider - see microsoft_calendar.py's
-    # module docstring. None if they haven't set one on their Profile yet.
-    meeting_link = interviewer.personal_meeting_link
+    # A real per-interview RingCentral Video meeting when the interviewer
+    # has RingCentral connected (see ringcentral_video.py's module
+    # docstring for why - lets a recording be matched back to this exact
+    # interview afterward), else their static personal_meeting_link (the
+    # pre-existing behavior; None if they haven't set one on their Profile).
+    ringcentral_meeting_id, meeting_link = _create_ringcentral_meeting_or_fallback(
+        interviewer, topic=f"{stage.stage_name} - {candidate.name}",
+        fallback_link=interviewer.personal_meeting_link,
+    )
 
     # Create the real calendar event before writing anything to our own DB -
     # if this fails, nothing below has happened yet, so there's nothing here
@@ -544,6 +660,7 @@ def submit_application(token):
             confirmation_code=confirmation_code,
             meeting_link=meeting_link,
             calendar_event_id=calendar_event_id,
+            ringcentral_meeting_id=ringcentral_meeting_id,
         )
         interview.candidates.append(candidate)
         db.session.add(interview)
@@ -580,6 +697,15 @@ def submit_application(token):
         )
     except Exception:
         current_app.logger.exception("Failed to send confirmation email for candidate %s", candidate.id)
+
+    try:
+        send_interviewer_scheduled_email(
+            to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
+            job_title=job.title, stage_name=stage.stage_name, scheduled_start=slot_start,
+            meeting_link=meeting_link,
+        )
+    except Exception:
+        current_app.logger.exception("Failed to send interviewer scheduled-notice email for candidate %s", candidate.id)
 
     return jsonify({
         "confirmation_code": confirmation_code,
