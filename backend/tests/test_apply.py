@@ -242,6 +242,34 @@ def test_dedupe_no_ops_when_a_live_application_already_exists(app, client, job, 
     assert mock_email == []  # no second email for a no-op
 
 
+def test_can_reapply_after_being_rejected_even_with_time_left_on_the_old_token(app, client, job, mock_email):
+    """A candidate rejected by a recruiter after initially qualifying
+    (routes/candidates.py's update_stage_progress cascade) keeps their
+    original application_token - it's never cleared on rejection. Found
+    live: without excluding disqualified_at, this candidate reads as a
+    still-open duplicate application and a real re-apply attempt gets
+    silently swallowed, indistinguishable from success."""
+    with app.app_context():
+        rejected = Candidate(
+            name='Jane Applicant', email='jane@example.com', job_id=job.id,
+            application_token='old-token', application_token_expires_at=datetime.utcnow() + timedelta(days=8),
+            stage='Rejected', disqualified_at=datetime.utcnow(),
+        )
+        db.session.add(rejected)
+        db.session.commit()
+
+    resp = _post_apply(client, job_id=job.id)
+
+    assert resp.status_code == 200
+    with app.app_context():
+        candidates = Candidate.query.filter_by(job_id=job.id, email='jane@example.com').all()
+        assert len(candidates) == 2
+        new_candidate = next(c for c in candidates if c.application_token != 'old-token')
+        assert new_candidate.disqualified_at is None
+        assert new_candidate.application_token is not None
+    assert len(mock_email) == 1  # the new application's schedule-interview email did go out
+
+
 def test_reapplies_after_the_previous_token_has_expired(app, client, job):
     with app.app_context():
         expired = Candidate(

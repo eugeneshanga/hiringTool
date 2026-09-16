@@ -303,12 +303,18 @@ def apply():
     # Dedupe: an existing, still-live application for this email+job means
     # this candidate already has a valid apply link out there (or is mid
     # scheduling) - no-op rather than creating a second Candidate or sending
-    # a second email. A previously-*disqualified* candidate is never "live"
-    # here (see below - they never get an application_token at all), so
-    # this doesn't block someone from re-applying after a rejection.
+    # a second email. disqualified_at.is_(None) is what actually keeps a
+    # rejected candidate from being treated as "live" here - a candidate
+    # auto-disqualified at apply time never gets a token in the first place
+    # (see the `else` branch below), but one rejected *later* by a
+    # recruiter (routes/candidates.py's update_stage_progress cascade) still
+    # has their original, unexpired token sitting there - without this
+    # check, that reads as a still-open duplicate application and silently
+    # swallows every attempt to re-apply, indistinguishable from success.
     existing = Candidate.query.filter_by(job_id=job_id, email=email).filter(
         Candidate.application_token.isnot(None),
         Candidate.application_token_expires_at > datetime.utcnow(),
+        Candidate.disqualified_at.is_(None),
     ).first()
     if existing:
         return _generic_success_response()
