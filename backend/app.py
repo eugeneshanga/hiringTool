@@ -1,6 +1,5 @@
 import logging
 import os
-
 import click
 from flask import Flask, redirect, request, send_from_directory
 from flask_cors import CORS
