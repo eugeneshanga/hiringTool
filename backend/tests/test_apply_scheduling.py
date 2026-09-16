@@ -75,6 +75,15 @@ def mock_confirmation_email(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def mock_interviewer_scheduled_email(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        apply_module, 'send_interviewer_scheduled_email', lambda **kwargs: calls.append(kwargs) or True
+    )
+    return calls
+
+
 # --- GET /api/apply/<token> ---------------------------------------------------
 
 def test_get_application_404_for_unknown_token(client):
@@ -231,7 +240,8 @@ def test_submit_503_when_calendar_event_creation_fails(app, client, applied_cand
 
 
 def test_submit_success_books_everything_and_sends_confirmation(
-    app, client, applied_candidate, schedulable_stage, monkeypatch, mock_confirmation_email,
+    app, client, applied_candidate, schedulable_stage, monkeypatch,
+    mock_confirmation_email, mock_interviewer_scheduled_email,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
     monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
@@ -263,6 +273,11 @@ def test_submit_success_books_everything_and_sends_confirmation(
     assert len(mock_confirmation_email) == 1
     assert mock_confirmation_email[0]['confirmation_code'] == body['confirmation_code']
     assert mock_confirmation_email[0]['to_email'] == 'jane@example.com'
+
+    assert len(mock_interviewer_scheduled_email) == 1
+    assert mock_interviewer_scheduled_email[0]['to_email'] == 'test@example.com'  # schedulable_stage's interviewer
+    assert mock_interviewer_scheduled_email[0]['candidate_name'] == 'Jane Applicant'
+    assert mock_interviewer_scheduled_email[0]['scheduled_start'] == FAR_FUTURE
 
 
 def test_submit_db_failure_after_booking_cleans_up_the_calendar_event(

@@ -705,6 +705,18 @@ class CandidateStageProgress(db.Model):
     # stages gets two independent recordings.
     recording_original_filename = db.Column(db.String(255))
     recording_stored_filename = db.Column(db.String(255))
+    # Set the moment each lead-time reminder email actually goes out to this
+    # stage's interviewer (scheduled_jobs.send_due_interview_reminders) -
+    # null means "not sent yet". Three independent columns rather than one,
+    # since all three can be due against the same scheduled_at at different
+    # points as it approaches (a candidate could book with under a day's
+    # notice, in which case the 1-day tier is simply never due and stays
+    # null forever - not a bug, nothing to send for it). Cleared back to
+    # null on any reschedule (new scheduled_at) so the reminders re-fire
+    # against the new time - see routes/candidates.py's book_stage_slot etc.
+    reminder_1day_sent_at = db.Column(db.DateTime)
+    reminder_4hr_sent_at = db.Column(db.DateTime)
+    reminder_1hr_sent_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # 'Upcoming' is set automatically by scheduling/rescheduling (routes/
@@ -737,6 +749,16 @@ class CandidateStageProgress(db.Model):
     )
 
     meeting_stage_template = db.relationship('MeetingStageTemplate')
+
+    def reset_reminders(self):
+        """Clears all three reminder-sent markers - call whenever
+        scheduled_at changes to a new value (a fresh booking or a
+        reschedule), so scheduled_jobs.send_due_interview_reminders re-fires
+        every tier against the new time instead of treating a tier as
+        already handled because it went out for the old one."""
+        self.reminder_1day_sent_at = None
+        self.reminder_4hr_sent_at = None
+        self.reminder_1hr_sent_at = None
 
     def to_dict(self):
         return {

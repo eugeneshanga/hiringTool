@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from flask_jwt_extended import jwt_required
 
 from dateutils import parse_datetime
-from email_sender import send_confirmation_email
+from email_sender import send_confirmation_email, send_interviewer_scheduled_email
 from file_storage import candidate_file_path, delete_candidate_file, delete_candidate_files, save_candidate_file
 from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, create_event, delete_event
 # Reused rather than reimplemented - _available_slots_for_stage and
@@ -17,7 +17,7 @@ from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, cr
 # import anything from this module). See book_stage_slot below, which
 # mirrors apply.py's submit_application for a recruiter-initiated booking
 # instead of the public token-based one.
-from routes.apply import _available_slots_for_stage, _unique_confirmation_code
+from routes.apply import _available_slots_for_stage, _notify_interviewer_scheduled, _unique_confirmation_code
 from upload_validation import ONBOARDING_EXTENSIONS, RESUME_EXTENSIONS, reject_bad_upload
 from validation import validate_choice
 from models import (
@@ -408,8 +408,11 @@ def update_stage_progress(candidate_id, template_id):
                 progress.scheduled_at = parse_datetime(raw, 'scheduled_at')
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
+            progress.reset_reminders()
+            _notify_interviewer_scheduled(template, candidate, candidate.job, progress.scheduled_at)
         else:
             progress.scheduled_at = None
+            progress.reset_reminders()
     if 'location' in data:
         progress.location = data['location']
     if 'notes' in data:
@@ -637,6 +640,7 @@ def book_stage_slot(candidate_id, template_id):
         progress.status = 'Upcoming'
         progress.scheduled_at = slot_start
         progress.location = meeting_link
+        progress.reset_reminders()
 
         db.session.commit()
     except Exception:
@@ -660,5 +664,13 @@ def book_stage_slot(candidate_id, template_id):
         )
     except Exception:
         current_app.logger.exception("Failed to send confirmation email for candidate %s", candidate.id)
+
+    try:
+        send_interviewer_scheduled_email(
+            to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
+            job_title=candidate.job.title, stage_name=template.stage_name, scheduled_start=slot_start,
+        )
+    except Exception:
+        current_app.logger.exception("Failed to send interviewer scheduled-notice email for candidate %s", candidate.id)
 
     return jsonify(candidate.to_detail_dict()), 200

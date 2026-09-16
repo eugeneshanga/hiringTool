@@ -36,6 +36,15 @@ def mock_email(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def mock_interviewer_email(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        apply_module, 'send_interviewer_application_email', lambda **kwargs: calls.append(kwargs) or True
+    )
+    return calls
+
+
 def _resume_file(name='resume.pdf'):
     return (io.BytesIO(b'%PDF-1.4 fake resume content'), name)
 
@@ -321,6 +330,45 @@ def test_apply_qualifying_answer_gets_a_token_and_the_schedule_email(app, client
         assert candidate.stage == 'Applied'
         assert candidate.disqualified_at is None
     assert len(mock_email) == 1
+
+
+def test_qualifying_application_notifies_the_stages_interviewer(app, client, job, user, mock_interviewer_email):
+    with app.app_context():
+        db.session.add(MeetingStageTemplate(
+            job_id=job.id, meeting_type='Virtual interview', stage_name='CHHA Interview',
+            sort_order=0, interviewer_user_id=user.id,
+        ))
+        db.session.commit()
+
+    resp = _post_apply(client, job_id=job.id)
+
+    assert resp.status_code == 200
+    assert len(mock_interviewer_email) == 1
+    assert mock_interviewer_email[0]['to_email'] == user.email
+    assert mock_interviewer_email[0]['candidate_name'] == 'Jane Applicant'
+    assert mock_interviewer_email[0]['stage_name'] == 'CHHA Interview'
+
+
+def test_application_to_a_stage_with_no_interviewer_assigned_sends_nothing_extra(app, client, job, mock_interviewer_email):
+    # job has no meeting stages at all here (the bare `job` fixture) -
+    # _scheduling_stage_for finds nothing to notify, and nothing errors.
+    resp = _post_apply(client, job_id=job.id)
+    assert resp.status_code == 200
+    assert mock_interviewer_email == []
+
+
+def test_disqualifying_application_does_not_notify_the_interviewer(app, client, job, user, mock_interviewer_email):
+    with app.app_context():
+        db.session.add(MeetingStageTemplate(
+            job_id=job.id, meeting_type='Virtual interview', stage_name='CHHA Interview',
+            sort_order=0, interviewer_user_id=user.id,
+        ))
+        db.session.commit()
+    question_id = _add_multiple_choice_question(app, job, qualified_answers=['Yes'])
+
+    _post_apply(client, job_id=job.id, answers=json.dumps([{"question_id": question_id, "answer_text": "No"}]))
+
+    assert mock_interviewer_email == []
 
 
 def test_apply_disqualifying_answer_gets_no_token_and_no_schedule_email(app, client, job, mock_email):

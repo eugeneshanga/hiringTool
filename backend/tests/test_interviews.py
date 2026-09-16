@@ -1,6 +1,8 @@
 """Enroll/unenroll + capacity are the trickiest logic in the interviews route
 (routes/interviews.py) — this is the "safety net before refactoring" test
 the code review called for."""
+import routes.apply as apply_module
+from models import MeetingStageTemplate, db
 
 
 def create_interview(client, headers, **overrides):
@@ -105,6 +107,48 @@ def test_enroll_in_a_stage_session_updates_the_candidates_own_schedule(
     listed = client.get('/api/candidates', headers=auth_headers).get_json()
     listed_candidate = next(c for c in listed if c['id'] == candidate.id)
     assert listed_candidate['current_stage']['scheduled_at'] == interview['scheduled_start']
+
+
+def test_enroll_in_a_stage_session_notifies_the_stages_interviewer(
+    app, client, auth_headers, candidate_factory, job, meeting_stage, user, monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(apply_module, 'send_interviewer_scheduled_email', lambda **kwargs: calls.append(kwargs) or True)
+    with app.app_context():
+        stage = MeetingStageTemplate.query.get(meeting_stage.id)
+        stage.interviewer_user_id = user.id
+        db.session.commit()
+
+    interview = create_interview(
+        client, auth_headers,
+        job_id=job.id, meeting_stage_template_id=meeting_stage.id, stage_name=meeting_stage.stage_name,
+        meeting_type='Interview',
+    )
+    candidate = candidate_factory(job_id=job.id)
+
+    client.post(f"/api/interviews/{interview['id']}/enroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    assert len(calls) == 1
+    assert calls[0]['to_email'] == user.email
+    assert calls[0]['candidate_name'] == candidate.name
+
+
+def test_enroll_sends_nothing_when_stage_has_no_interviewer_assigned(
+    client, auth_headers, candidate_factory, job, meeting_stage, monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(apply_module, 'send_interviewer_scheduled_email', lambda **kwargs: calls.append(kwargs) or True)
+
+    interview = create_interview(
+        client, auth_headers,
+        job_id=job.id, meeting_stage_template_id=meeting_stage.id, stage_name=meeting_stage.stage_name,
+        meeting_type='Interview',
+    )
+    candidate = candidate_factory(job_id=job.id)
+
+    client.post(f"/api/interviews/{interview['id']}/enroll", headers=auth_headers, json={'candidate_id': candidate.id})
+
+    assert calls == []
 
 
 def test_unenroll_clears_the_candidates_schedule_for_that_stage(

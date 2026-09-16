@@ -51,7 +51,13 @@ import requests
 from flask import Blueprint, current_app, jsonify, request
 
 from dateutils import parse_datetime
-from email_sender import is_plausible_email, send_confirmation_email, send_schedule_interview_email
+from email_sender import (
+    is_plausible_email,
+    send_confirmation_email,
+    send_interviewer_application_email,
+    send_interviewer_scheduled_email,
+    send_schedule_interview_email,
+)
 from extensions import limiter
 from file_storage import save_candidate_file
 from microsoft_calendar import (
@@ -365,6 +371,27 @@ def apply():
             current_app.logger.exception(
                 "Failed to send schedule-interview email for candidate %s", candidate.id
             )
+
+        # Same best-effort reasoning as above - lets the stage's assigned
+        # interviewer know someone's in their pipeline before a time is even
+        # picked. Silently skipped if the stage has no interviewer assigned
+        # (nothing has broken; that stage just isn't wired up for this yet -
+        # same fail-safe as _available_slots_for_stage).
+        stage = _scheduling_stage_for(job)
+        interviewer = User.query.get(stage.interviewer_user_id) if stage and stage.interviewer_user_id else None
+        if interviewer:
+            try:
+                send_interviewer_application_email(
+                    to_email=interviewer.email,
+                    interviewer_name=interviewer.name,
+                    candidate_name=candidate.name,
+                    job_title=job.title,
+                    stage_name=stage.stage_name,
+                )
+            except Exception:
+                current_app.logger.exception(
+                    "Failed to send interviewer application-notice email for candidate %s", candidate.id
+                )
     else:
         # No email sent inline here - scheduled_jobs.send_due_rejection_emails
         # picks this up once REJECTION_EMAIL_DELAY_MINUTES has passed. stage
@@ -376,6 +403,33 @@ def apply():
         db.session.commit()
 
     return _generic_success_response()
+
+
+def _notify_interviewer_scheduled(template, candidate, job, scheduled_start):
+    """Best-effort notification to a stage's assigned interviewer that a
+    candidate just got a real time booked against it - shared by every path
+    that can set a real scheduled_at: this module's submit_application
+    (which resolves its own `interviewer` inline, since it already needs it
+    for the calendar call, so doesn't go through this), routes/candidates.py's
+    book_stage_slot (same), update_stage_progress (the plain manual-reschedule
+    path, for a stage without live-calendar scheduling), and routes/
+    interviews.py's enroll_candidate (session enrollment). Silently does
+    nothing if the stage has no interviewer assigned - nothing's broken,
+    that stage just isn't wired up for this yet."""
+    if not template.interviewer_user_id:
+        return
+    interviewer = User.query.get(template.interviewer_user_id)
+    if not interviewer:
+        return
+    try:
+        send_interviewer_scheduled_email(
+            to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
+            job_title=job.title, stage_name=template.stage_name, scheduled_start=scheduled_start,
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Failed to send interviewer scheduled-notice email for candidate %s", candidate.id
+        )
 
 
 # --- prescreen + scheduling page ---------------------------------------------
@@ -580,6 +634,14 @@ def submit_application(token):
         )
     except Exception:
         current_app.logger.exception("Failed to send confirmation email for candidate %s", candidate.id)
+
+    try:
+        send_interviewer_scheduled_email(
+            to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
+            job_title=job.title, stage_name=stage.stage_name, scheduled_start=slot_start,
+        )
+    except Exception:
+        current_app.logger.exception("Failed to send interviewer scheduled-notice email for candidate %s", candidate.id)
 
     return jsonify({
         "confirmation_code": confirmation_code,

@@ -190,6 +190,24 @@ defaults documented above.
   (`scheduled_jobs.send_due_rejection_emails`). Once every required
   onboarding item for a stage has a submission, `Yes - Awaiting information`
   advances itself to `Yes - Information received` automatically.
+- **Interviewer notifications** — a meeting stage's assigned interviewer
+  (`MeetingStageTemplate.interviewer_user_id`, the same person the live-
+  calendar scheduling books against) gets emailed at two points: the moment
+  a candidate qualifies and is sent a scheduling link (`POST /api/apply`),
+  and the moment any of them books a real time against that interviewer's
+  stage - self-service (`POST /api/apply/<token>/submit`), recruiter-
+  initiated (`.../book`, the plain manual reschedule path in
+  `update_stage_progress`), or session enrollment (`.../enroll`). On top of
+  that, `scheduled_jobs.send_due_interview_reminders` emails the interviewer
+  again at three lead times before the scheduled time - 1 day, 4 hours, and
+  1 hour out (`CandidateStageProgress.reminder_1day_sent_at`/`_4hr_sent_at`/
+  `_1hr_sent_at` track which have gone out; a reschedule clears all three so
+  they re-fire against the new time - see `reset_reminders()`). Every one of
+  these is silently skipped if the stage has no interviewer assigned -
+  nothing's broken, that stage just isn't wired up for it. Native Outlook
+  calendar reminders weren't used for this - a Graph calendar event only
+  supports one reminder time, not three, so all of this runs as ordinary
+  app-sent email instead.
 - **Home / Upcoming** — scheduled interview sessions (1:1 or capacity-limited
   group sessions like an orientation), with enroll/unenroll per candidate.
   Enrolling a candidate automatically advances their stage to "Interview"
