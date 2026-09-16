@@ -73,10 +73,23 @@ def ringcentral_callback():
         access_token = tokens['access_token']
         expires_in = tokens.get('expires_in', 3600)
         refresh_token = tokens.get('refresh_token')
-        account_email = fetch_ringcentral_email(access_token)
     except Exception:
         current_app.logger.exception('RingCentral OAuth exchange failed')
         return redirect(f'{frontend_url}?ringcentral_error=token_exchange_failed')
+
+    # Best-effort, separate from the exchange above: this app's "Video"
+    # scope doesn't necessarily grant the Extension-info endpoint used here
+    # (some accounts/plans 403 it) - that's fine, it's purely a display
+    # label (RingCentralConnection.account_email), not something meeting
+    # creation/recording retrieval depend on. A real, working connection
+    # (the tokens above) shouldn't be thrown away over this.
+    try:
+        account_email = fetch_ringcentral_email(access_token)
+    except Exception:
+        current_app.logger.warning(
+            'Could not fetch RingCentral account email for user %s - connecting anyway', user.id, exc_info=True,
+        )
+        account_email = None
 
     if not refresh_token:
         return redirect(f'{frontend_url}?ringcentral_error=no_refresh_token')

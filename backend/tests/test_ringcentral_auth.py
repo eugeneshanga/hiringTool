@@ -57,6 +57,31 @@ def test_callback_creates_connection_from_valid_code(app, client, user, monkeypa
         assert connection.token_expiry > datetime.utcnow()
 
 
+def test_callback_still_connects_when_email_lookup_is_forbidden(app, client, user, monkeypatch):
+    """Some accounts/plans 403 the extension-info endpoint used for the
+    display email even with a perfectly valid access token (seen live: the
+    'Video' scope alone doesn't necessarily grant it) - that's cosmetic and
+    must not throw away a real, working connection."""
+    monkeypatch.setattr(
+        ringcentral_auth, 'exchange_code_for_tokens',
+        lambda code: {'access_token': 'access-123', 'refresh_token': 'refresh-456', 'expires_in': 3600},
+    )
+
+    def _forbidden(access_token):
+        raise Exception('403 Client Error: Forbidden')
+    monkeypatch.setattr(ringcentral_auth, 'fetch_ringcentral_email', _forbidden)
+
+    state = _state_for(app, user.id)
+    resp = client.get(f'/api/auth/ringcentral/callback?code=fakecode&state={state}')
+
+    assert resp.headers['Location'].endswith('?ringcentral_connected=true')
+    with app.app_context():
+        connection = RingCentralConnection.query.filter_by(user_id=user.id).first()
+        assert connection is not None
+        assert decrypt_token(connection.encrypted_refresh_token) == 'refresh-456'
+        assert connection.account_email == ''
+
+
 def test_callback_upserts_rather_than_duplicating_on_reconnect(app, client, user, monkeypatch):
     monkeypatch.setattr(
         ringcentral_auth, 'exchange_code_for_tokens',
