@@ -30,6 +30,19 @@ def save_candidate_file(candidate_id, file_storage):
     return original_filename, stored_filename
 
 
+def save_candidate_bytes(candidate_id, filename, data):
+    """Same UUID-prefixed scheme as save_candidate_file, for raw bytes
+    rather than an uploaded FileStorage - used by
+    scheduled_jobs.fetch_due_interview_recordings, which downloads a
+    recording from RingCentral itself rather than receiving one as part of
+    a request. Returns (original_filename, stored_filename)."""
+    original_filename = secure_filename(filename) or 'recording'
+    stored_filename = f'{uuid.uuid4().hex}_{original_filename}'
+    with open(os.path.join(_candidate_dir(candidate_id), stored_filename), 'wb') as f:
+        f.write(data)
+    return original_filename, stored_filename
+
+
 def candidate_file_path(candidate_id, stored_filename):
     return os.path.join(_candidate_dir(candidate_id), stored_filename)
 

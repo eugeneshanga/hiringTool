@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { usePageTitle } from '../hooks/usePageTitle'
-import type { MicrosoftCalendarStatus } from '../api/types'
+import type { MicrosoftCalendarStatus, RingCentralStatus } from '../api/types'
 
 const CALENDAR_ERROR_MESSAGES: Record<string, string> = {
   access_denied: 'Microsoft sign-in was cancelled.',
@@ -11,6 +11,14 @@ const CALENDAR_ERROR_MESSAGES: Record<string, string> = {
   invalid_state: 'That connection attempt could not be verified - try again.',
   token_exchange_failed: 'Microsoft rejected the connection attempt - try again.',
   no_refresh_token: 'Microsoft did not grant lasting access - try disconnecting and reconnecting.',
+}
+
+const RINGCENTRAL_ERROR_MESSAGES: Record<string, string> = {
+  access_denied: 'RingCentral sign-in was cancelled.',
+  state_expired: 'That connection attempt took too long - try again.',
+  invalid_state: 'That connection attempt could not be verified - try again.',
+  token_exchange_failed: 'RingCentral rejected the connection attempt - try again.',
+  no_refresh_token: 'RingCentral did not grant lasting access - try disconnecting and reconnecting.',
 }
 
 /** "Profile" (linked from the header's account dropdown): editable personal
@@ -34,6 +42,10 @@ export function ProfilePage() {
   const [loadingCalendar, setLoadingCalendar] = useState(true)
   const [disconnecting, setDisconnecting] = useState(false)
 
+  const [ringcentralStatus, setRingcentralStatus] = useState<RingCentralStatus | null>(null)
+  const [loadingRingcentral, setLoadingRingcentral] = useState(true)
+  const [disconnectingRingcentral, setDisconnectingRingcentral] = useState(false)
+
   async function loadCalendarStatus() {
     setLoadingCalendar(true)
     try {
@@ -45,8 +57,20 @@ export function ProfilePage() {
     }
   }
 
+  async function loadRingcentralStatus() {
+    setLoadingRingcentral(true)
+    try {
+      setRingcentralStatus(await api.getRingCentralStatus())
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to load RingCentral status')
+    } finally {
+      setLoadingRingcentral(false)
+    }
+  }
+
   useEffect(() => {
     loadCalendarStatus()
+    loadRingcentralStatus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -60,6 +84,13 @@ export function ProfilePage() {
     } else if (searchParams.has('calendar_error')) {
       const reason = searchParams.get('calendar_error') ?? ''
       setError(CALENDAR_ERROR_MESSAGES[reason] ?? 'Failed to connect calendar - try again.')
+      setSearchParams({}, { replace: true })
+    } else if (searchParams.has('ringcentral_connected')) {
+      loadRingcentralStatus()
+      setSearchParams({}, { replace: true })
+    } else if (searchParams.has('ringcentral_error')) {
+      const reason = searchParams.get('ringcentral_error') ?? ''
+      setError(RINGCENTRAL_ERROR_MESSAGES[reason] ?? 'Failed to connect RingCentral - try again.')
       setSearchParams({}, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,6 +111,24 @@ export function ProfilePage() {
       setError(err instanceof ApiError ? err.message : 'Failed to disconnect calendar')
     } finally {
       setDisconnecting(false)
+    }
+  }
+
+  function handleConnectRingcentral() {
+    window.location.href = api.ringcentralConnectUrl()
+  }
+
+  async function handleDisconnectRingcentral() {
+    if (!confirm('Disconnect your RingCentral account?')) return
+    setDisconnectingRingcentral(true)
+    setError(null)
+    try {
+      await api.disconnectRingCentral()
+      await loadRingcentralStatus()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to disconnect RingCentral')
+    } finally {
+      setDisconnectingRingcentral(false)
     }
   }
 
@@ -188,6 +237,52 @@ export function ProfilePage() {
               ) : (
                 <button type="button" onClick={handleConnectCalendar}>
                   Connect calendar
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="card section">
+        <div className="section-header">
+          <h2>RingCentral connection</h2>
+        </div>
+        <p className="subtle">
+          Connect your RingCentral account so each interview you're assigned gets its own real
+          meeting instead of your static personal link above - lets the recording be matched back
+          to the right candidate automatically once the interview's over. Falls back to your
+          personal meeting link above for anyone not connected.
+        </p>
+
+        {loadingRingcentral ? (
+          <p className="subtle">Loading…</p>
+        ) : (
+          <>
+            {ringcentralStatus?.connected && (
+              <p className="calendar-status-connected">
+                <span aria-hidden="true">✓</span> Connected
+                {ringcentralStatus.account_email ? ` (${ringcentralStatus.account_email})` : ''}
+              </p>
+            )}
+            <div className="page-header-actions">
+              {ringcentralStatus?.connected ? (
+                <>
+                  <button type="button" className="button-secondary" onClick={handleConnectRingcentral}>
+                    Reauthorize RingCentral
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    onClick={handleDisconnectRingcentral}
+                    disabled={disconnectingRingcentral}
+                  >
+                    {disconnectingRingcentral ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={handleConnectRingcentral}>
+                  Connect RingCentral
                 </button>
               )}
             </div>

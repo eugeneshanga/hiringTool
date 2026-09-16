@@ -17,7 +17,12 @@ from microsoft_calendar import CalendarNotConnectedError, CalendarTokenError, cr
 # import anything from this module). See book_stage_slot below, which
 # mirrors apply.py's submit_application for a recruiter-initiated booking
 # instead of the public token-based one.
-from routes.apply import _available_slots_for_stage, _notify_interviewer_scheduled, _unique_confirmation_code
+from routes.apply import (
+    _available_slots_for_stage,
+    _create_ringcentral_meeting_or_fallback,
+    _notify_interviewer_scheduled,
+    _unique_confirmation_code,
+)
 from upload_validation import ONBOARDING_EXTENSIONS, RESUME_EXTENSIONS, reject_bad_upload
 from validation import validate_choice
 from models import (
@@ -580,10 +585,19 @@ def book_stage_slot(candidate_id, template_id):
     if (slot_start, slot_end) not in current_slots:
         return jsonify({"error": "that time is no longer available - please pick another"}), 409
 
-    meeting_link = interviewer.personal_meeting_link
     existing_interview = next(
         (i for i in candidate.interviews if i.meeting_stage_template_id == template.id), None
     )
+    if existing_interview and existing_interview.ringcentral_meeting_id:
+        # Rebooking (a reschedule) - same room, new time. No need to create
+        # a fresh RingCentral meeting just because the schedule changed.
+        ringcentral_meeting_id = existing_interview.ringcentral_meeting_id
+        meeting_link = existing_interview.meeting_link
+    else:
+        ringcentral_meeting_id, meeting_link = _create_ringcentral_meeting_or_fallback(
+            interviewer, topic=f"{template.stage_name} - {candidate.name}",
+            fallback_link=interviewer.personal_meeting_link,
+        )
 
     try:
         calendar_event_id = create_event(
@@ -627,6 +641,7 @@ def book_stage_slot(candidate_id, template_id):
                 confirmation_code=confirmation_code,
                 meeting_link=meeting_link,
                 calendar_event_id=calendar_event_id,
+                ringcentral_meeting_id=ringcentral_meeting_id,
             )
             interview.candidates.append(candidate)
             db.session.add(interview)

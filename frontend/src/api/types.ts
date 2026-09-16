@@ -37,6 +37,15 @@ export interface MicrosoftCalendarStatus {
   account_email?: string
 }
 
+// Same shape, for the RingCentral connection (ringcentral_video.py /
+// routes/ringcentral_auth.py) that lets a real per-interview meeting be
+// created instead of an interviewer's static personal_meeting_link, so its
+// recording can later be matched back to the right candidate.
+export interface RingCentralStatus {
+  connected: boolean
+  account_email?: string
+}
+
 // This single-tenant app's one Organization row - name plus whether a
 // logo/banner is set (the images themselves are fetched separately as blobs
 // via GET /api/organization/logo|banner, same pattern as candidate

@@ -67,6 +67,11 @@ from microsoft_calendar import (
     delete_event,
     get_free_slots,
 )
+from ringcentral_video import (
+    RingCentralNotConnectedError,
+    RingCentralTokenError,
+    create_meeting,
+)
 from upload_validation import RESUME_EXTENSIONS, reject_bad_upload
 from models import (
     Candidate,
@@ -405,6 +410,33 @@ def apply():
     return _generic_success_response()
 
 
+def _create_ringcentral_meeting_or_fallback(interviewer, topic, fallback_link):
+    """Creates a real per-interview RingCentral Video meeting on the
+    interviewer's connected account (ringcentral_video.create_meeting), so
+    its recording can later be matched back to this exact interview - see
+    that module's docstring for why the interviewer's old static
+    personal_meeting_link couldn't support that. Falls back to
+    `fallback_link` (the interviewer's static link - the pre-existing
+    behavior) whenever they haven't connected RingCentral, or RingCentral
+    is unreachable/rejects the request right now - a candidate booking an
+    interview should never fail just because this optional upgrade isn't
+    available. Returns (ringcentral_meeting_id, meeting_link) - the id is
+    None whenever the fallback was used, and Interview.ringcentral_meeting_id
+    should be set to it either way (null is a valid, meaningful value
+    there, not a bug)."""
+    try:
+        meeting_id, join_url = create_meeting(interviewer, topic)
+        if join_url:
+            return meeting_id, join_url
+    except (RingCentralNotConnectedError, RingCentralTokenError, requests.RequestException):
+        pass
+    except Exception:
+        current_app.logger.exception(
+            "Unexpected error creating RingCentral meeting for interviewer %s", interviewer.id
+        )
+    return None, fallback_link
+
+
 def _notify_interviewer_scheduled(template, candidate, job, scheduled_start):
     """Best-effort notification to a stage's assigned interviewer that a
     candidate just got a real time booked against it - shared by every path
@@ -565,10 +597,15 @@ def submit_application(token):
     if (slot_start, slot_end) not in current_slots:
         return jsonify({"error": "that time is no longer available - please pick another"}), 409
 
-    # The interviewer's own static RingCentral link, not one generated
-    # per-event by the calendar provider - see microsoft_calendar.py's
-    # module docstring. None if they haven't set one on their Profile yet.
-    meeting_link = interviewer.personal_meeting_link
+    # A real per-interview RingCentral Video meeting when the interviewer
+    # has RingCentral connected (see ringcentral_video.py's module
+    # docstring for why - lets a recording be matched back to this exact
+    # interview afterward), else their static personal_meeting_link (the
+    # pre-existing behavior; None if they haven't set one on their Profile).
+    ringcentral_meeting_id, meeting_link = _create_ringcentral_meeting_or_fallback(
+        interviewer, topic=f"{stage.stage_name} - {candidate.name}",
+        fallback_link=interviewer.personal_meeting_link,
+    )
 
     # Create the real calendar event before writing anything to our own DB -
     # if this fails, nothing below has happened yet, so there's nothing here
@@ -598,6 +635,7 @@ def submit_application(token):
             confirmation_code=confirmation_code,
             meeting_link=meeting_link,
             calendar_event_id=calendar_event_id,
+            ringcentral_meeting_id=ringcentral_meeting_id,
         )
         interview.candidates.append(candidate)
         db.session.add(interview)

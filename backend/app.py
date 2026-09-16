@@ -14,6 +14,7 @@ from routes.candidates import candidates_bp
 from routes.jobs import jobs_bp
 from routes.auth import auth_bp
 from routes.calendar_auth import calendar_auth_bp
+from routes.ringcentral_auth import ringcentral_auth_bp
 from routes.interviews import interviews_bp
 from routes.meeting_stages import meeting_stages_bp
 from routes.screening_questions import screening_questions_bp
@@ -121,6 +122,7 @@ def create_app(config_overrides=None):
     app.register_blueprint(jobs_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(calendar_auth_bp)
+    app.register_blueprint(ringcentral_auth_bp)
     app.register_blueprint(interviews_bp)
     app.register_blueprint(meeting_stages_bp)
     app.register_blueprint(screening_questions_bp)

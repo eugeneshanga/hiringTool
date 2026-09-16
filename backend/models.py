@@ -124,6 +124,47 @@ class CalendarConnection(db.Model):
         }
 
 
+class RingCentralConnection(db.Model):
+    """A recruiter/interviewer's connected RingCentral account - used to
+    create a real per-interview RingCentral Video meeting (see
+    ringcentral_video.py's create_meeting, called from routes/apply.py's
+    submit_application and routes/candidates.py's book_stage_slot) in place
+    of the interviewer's old static personal_meeting_link, so a recording
+    can later be matched back to the exact interview it belongs to via its
+    own meeting id (Interview.ringcentral_meeting_id) - the static link
+    couldn't support that: RingCentral has no idea which candidate is on
+    the other end of a room reused for every interview.
+
+    Kept as its own model rather than folding into CalendarConnection -
+    genuinely separate provider, separate OAuth exchange, connected
+    independently; the two just happen to share the same shape and the same
+    Fernet key for their refresh tokens (see encrypt_token/decrypt_token in
+    both microsoft_calendar.py and ringcentral_video.py)."""
+    __tablename__ = 'ringcentral_connections'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
+    account_email = db.Column(db.String(120), nullable=False)
+    # RingCentral's refresh tokens are themselves short-lived (~7 days) and
+    # rotate on every use, unlike Microsoft's - see ringcentral_video.py's
+    # get_valid_access_token for why an interviewer who goes quiet for over
+    # a week can end up needing to reconnect.
+    encrypted_refresh_token = db.Column(db.Text, nullable=False)
+    access_token = db.Column(db.Text, nullable=True)
+    token_expiry = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('ringcentral_connection', uselist=False))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "account_email": self.account_email,
+            "created_at": iso_utc(self.created_at),
+        }
+
+
 class Job(db.Model):
     __tablename__ = 'jobs'
 
@@ -368,16 +409,27 @@ class Interview(db.Model):
     # page (see models.generate_confirmation_code) instead of needing an
     # account/login.
     confirmation_code = db.Column(db.String(9), unique=True, index=True, nullable=True)
-    # The Microsoft Teams meeting link from the created calendar event's
-    # onlineMeeting.joinUrl - duplicated here (rather than only ever
-    # re-fetched from Microsoft) so the status page and confirmation email
-    # can display it without another API call.
+    # The meeting link shown to the candidate/interviewer - a real per-
+    # interview RingCentral Video join URL when the interviewer has RingCentral
+    # connected (ringcentral_video.py's create_meeting; ringcentral_meeting_id
+    # below is that same meeting's id), else falls back to the interviewer's
+    # static personal_meeting_link (User.personal_meeting_link). Duplicated
+    # here (rather than only ever re-fetched) so the status page and
+    # confirmation email can display it without another API call.
     meeting_link = db.Column(db.String(500), nullable=True)
     # Calendar event id backing this interview, so it can later be
     # updated/cancelled on the calendar provider's side (e.g. if a recruiter
     # cancels the interview in-app) - not exposed via to_dict, internal
     # bookkeeping only.
     calendar_event_id = db.Column(db.String(255), nullable=True)
+    # The RingCentral Video meeting (bridge) id backing this interview, if
+    # one was created (null when the interviewer has no RingCentral
+    # connection - meeting_link then just falls back to their static link,
+    # and there's nothing here to look a recording up by later). This is
+    # what scheduled_jobs.fetch_due_interview_recordings matches a
+    # completed meeting's recording back to the right interview/candidate -
+    # not exposed via to_dict, internal bookkeeping only.
+    ringcentral_meeting_id = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     VALID_MEETING_TYPES = ('Interview', 'Orientation', 'Other')

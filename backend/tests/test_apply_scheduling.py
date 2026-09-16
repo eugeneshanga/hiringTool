@@ -280,6 +280,48 @@ def test_submit_success_books_everything_and_sends_confirmation(
     assert mock_interviewer_scheduled_email[0]['scheduled_start'] == FAR_FUTURE
 
 
+def test_submit_creates_a_real_ringcentral_meeting_when_interviewer_connected(
+    app, client, applied_candidate, schedulable_stage, monkeypatch,
+):
+    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
+    monkeypatch.setattr(
+        apply_module, 'create_meeting',
+        lambda user, topic: ('rc-meeting-1', 'https://v.ringcentral.com/join/real-meeting'),
+    )
+
+    resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
+
+    assert resp.status_code == 201
+    # the real per-interview meeting link, not the interviewer's static one
+    assert resp.get_json()['meeting_link'] == 'https://v.ringcentral.com/join/real-meeting'
+    with app.app_context():
+        interview = Interview.query.filter_by(calendar_event_id='ms-event-1').first()
+        assert interview.ringcentral_meeting_id == 'rc-meeting-1'
+        assert interview.meeting_link == 'https://v.ringcentral.com/join/real-meeting'
+
+
+def test_submit_falls_back_to_the_static_link_when_ringcentral_unavailable(
+    app, client, applied_candidate, schedulable_stage, monkeypatch,
+):
+    """schedulable_stage's interviewer has no RingCentralConnection at all
+    here (only a CalendarConnection) - create_meeting should raise
+    RingCentralNotConnectedError, and booking should still succeed using
+    the interviewer's static personal_meeting_link, same as before this
+    integration existed."""
+    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
+
+    resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
+
+    assert resp.status_code == 201
+    assert resp.get_json()['meeting_link'] == RINGCENTRAL_LINK
+    with app.app_context():
+        interview = Interview.query.filter_by(calendar_event_id='ms-event-1').first()
+        assert interview.ringcentral_meeting_id is None
+        assert interview.meeting_link == RINGCENTRAL_LINK
+
+
 def test_submit_db_failure_after_booking_cleans_up_the_calendar_event(
     app, client, applied_candidate, schedulable_stage, monkeypatch,
 ):

@@ -112,6 +112,12 @@ DirectAdmin's Git integration doesn't support this deployment's subdomain).
   encrypting stored refresh tokens at rest — generate one with
   `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`;
   rotating it invalidates every stored refresh token).
+- `database.env` also holds RingCentral OAuth config, from a private app
+  registered in the RingCentral Developer Console (3-legged auth-code flow,
+  "Video" application scope): `RINGCENTRAL_CLIENT_ID`,
+  `RINGCENTRAL_CLIENT_SECRET`, `RINGCENTRAL_REDIRECT_URI`. Reuses
+  `CALENDAR_FRONTEND_REDIRECT_URL` and `CALENDAR_ENCRYPTION_KEY` above
+  rather than duplicating either.
 - `database.env` also controls outbound email (see `backend/email_sender.py`):
   `EMAIL_PROVIDER` — `console` (default; logs the email instead of sending,
   no external account needed), `postmark`, or `resend`. Both real providers
@@ -226,11 +232,35 @@ defaults documented above.
   (Graph's `calendar/getSchedule`) bounded to the org's configured working
   hours/timezone/days (Organization Settings), and booking (public apply
   flow or a recruiter booking a stage directly from a candidate's page)
-  creates a real calendar event via Graph. The actual meeting link
-  candidates and interviewers see isn't calendar-generated, though — each
-  `User` sets their own static video-meeting link (RingCentral in practice)
-  on their Profile page, and that's what goes out in confirmation
-  emails/status pages/the calendar event's location.
+  creates a real calendar event via Graph. The meeting link that goes into
+  that event's location (and confirmation emails/status pages) is a real
+  per-interview RingCentral Video meeting when the interviewer has
+  RingCentral connected (see below) - falling back to their own static
+  personal_meeting_link, set on their Profile page, when they don't.
+- **RingCentral connection** — same connect/disconnect/status shape as the
+  Microsoft Calendar connection above (`ringcentral_video.py` /
+  `routes/ringcentral_auth.py`, `GET /api/auth/ringcentral/connect` →
+  RingCentral consent → `.../callback`, `DELETE .../disconnect`, `GET
+  .../status`), independently connected per `User`. What it buys over the
+  old static personal-link-only setup: every booking (`submit_application`,
+  `book_stage_slot`) creates a real, unique RingCentral Video meeting
+  (`type: 'Scheduled'`, `ringcentral_video.create_meeting`) and stores its
+  id on `Interview.ringcentral_meeting_id` - not reused across interviews,
+  so a recording can be matched back to the exact candidate it belongs to
+  afterward (the old shared static link couldn't support that at all).
+  `scheduled_jobs.fetch_due_interview_recordings` checks for a finished
+  interview's recording (30 min to 14 days after it ended) and attaches it
+  to the candidate's stage automatically, exactly like a manually-uploaded
+  recording (`routes/candidates.py`'s `upload_recording` writes the same two
+  columns) - no frontend change needed for it to show up. Falls back
+  silently to the interviewer's static link at every step when they haven't
+  connected RingCentral, or RingCentral is unreachable, same fail-safe
+  posture as the rest of this app's optional integrations. Two things worth
+  knowing: RingCentral's own docs mark this Video REST API as **beta** (no
+  backwards-compatibility guarantee), and RingCentral refresh tokens are
+  short-lived (~7 days, rotating on every use) unlike Microsoft's - an
+  interviewer who goes quiet for over a week can end up needing to
+  reconnect from their Profile page.
 
 ## Known gaps
 
