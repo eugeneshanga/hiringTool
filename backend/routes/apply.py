@@ -461,7 +461,7 @@ def _create_ringcentral_meeting_or_fallback(interviewer, topic, fallback_link):
     return None, fallback_link
 
 
-def _notify_interviewer_scheduled(template, candidate, job, scheduled_start):
+def _notify_interviewer_scheduled(template, candidate, job, scheduled_start, meeting_link=None):
     """Best-effort notification to a stage's assigned interviewer that a
     candidate just got a real time booked against it - shared by every path
     that can set a real scheduled_at: this module's submit_application
@@ -481,6 +481,7 @@ def _notify_interviewer_scheduled(template, candidate, job, scheduled_start):
         send_interviewer_scheduled_email(
             to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
             job_title=job.title, stage_name=template.stage_name, scheduled_start=scheduled_start,
+            meeting_link=meeting_link,
         )
     except Exception:
         current_app.logger.exception(
@@ -701,6 +702,7 @@ def submit_application(token):
         send_interviewer_scheduled_email(
             to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
             job_title=job.title, stage_name=stage.stage_name, scheduled_start=slot_start,
+            meeting_link=meeting_link,
         )
     except Exception:
         current_app.logger.exception("Failed to send interviewer scheduled-notice email for candidate %s", candidate.id)

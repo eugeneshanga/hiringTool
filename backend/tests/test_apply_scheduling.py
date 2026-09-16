@@ -278,10 +278,11 @@ def test_submit_success_books_everything_and_sends_confirmation(
     assert mock_interviewer_scheduled_email[0]['to_email'] == 'test@example.com'  # schedulable_stage's interviewer
     assert mock_interviewer_scheduled_email[0]['candidate_name'] == 'Jane Applicant'
     assert mock_interviewer_scheduled_email[0]['scheduled_start'] == FAR_FUTURE
+    assert mock_interviewer_scheduled_email[0]['meeting_link'] == RINGCENTRAL_LINK
 
 
 def test_submit_creates_a_real_ringcentral_meeting_when_interviewer_connected(
-    app, client, applied_candidate, schedulable_stage, monkeypatch,
+    app, client, applied_candidate, schedulable_stage, monkeypatch, mock_interviewer_scheduled_email,
 ):
     monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
     monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
@@ -299,6 +300,10 @@ def test_submit_creates_a_real_ringcentral_meeting_when_interviewer_connected(
         interview = Interview.query.filter_by(calendar_event_id='ms-event-1').first()
         assert interview.ringcentral_meeting_id == 'rc-meeting-1'
         assert interview.meeting_link == 'https://v.ringcentral.com/join/real-meeting'
+
+    # the interviewer's own notification email must carry the freshly-created
+    # meeting link too, not just the API response / candidate's email
+    assert mock_interviewer_scheduled_email[0]['meeting_link'] == 'https://v.ringcentral.com/join/real-meeting'
 
 
 def test_submit_falls_back_to_the_static_link_when_ringcentral_unavailable(

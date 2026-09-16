@@ -121,6 +121,7 @@ def send_due_interview_reminders(app):
                         stage_name=template.stage_name,
                         scheduled_start=progress.scheduled_at,
                         lead_time_label=label,
+                        meeting_link=progress.location,
                     )
                 except Exception:
                     app.logger.exception(

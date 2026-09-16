@@ -172,6 +172,7 @@ def test_book_creates_a_real_interview_and_calendar_event(
     assert len(mock_confirmation_email) == 1
     assert len(mock_interviewer_scheduled_email) == 1
     assert mock_interviewer_scheduled_email[0]['to_email'] == 'test@example.com'  # schedulable_stage's interviewer
+    assert mock_interviewer_scheduled_email[0]['meeting_link'] == 'https://v.ringcentral.com/join/199431569'
 
 
 def test_rebooking_updates_the_existing_interview_in_place(

@@ -200,6 +200,7 @@ def enroll_candidate(interview_id):
         if interview.job:
             _notify_interviewer_scheduled(
                 interview.meeting_stage_template, candidate, interview.job, interview.scheduled_start,
+                meeting_link=interview.meeting_link or interview.location,
             )
 
     db.session.commit()

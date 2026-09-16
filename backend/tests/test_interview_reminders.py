@@ -64,6 +64,26 @@ def test_sends_all_due_tiers_when_booked_with_very_short_notice(
         assert progress.reminder_1day_sent_at is not None
 
 
+def test_reminder_email_includes_the_meeting_link(
+    app, candidate_factory, stage_with_interviewer, mock_reminder_email,
+):
+    """progress.location holds whatever link booking stored (a real
+    RingCentral meeting or the interviewer's static fallback) - the
+    reminder should carry it too, not just the confirmation/scheduled-
+    notice emails."""
+    candidate = candidate_factory(job_id=stage_with_interviewer.job_id)
+    scheduled_at = datetime.utcnow() + timedelta(minutes=30)
+    _progress(
+        app, candidate.id, stage_with_interviewer.id, scheduled_at,
+        location='https://v.ringcentral.com/join/real-meeting',
+    )
+
+    scheduled_jobs.send_due_interview_reminders(app)
+
+    assert len(mock_reminder_email) == 3
+    assert all(c['meeting_link'] == 'https://v.ringcentral.com/join/real-meeting' for c in mock_reminder_email)
+
+
 def test_does_not_resend_a_tier_already_marked_sent(
     app, candidate_factory, stage_with_interviewer, mock_reminder_email,
 ):
