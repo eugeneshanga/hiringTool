@@ -260,16 +260,25 @@ export function ProfilePage() {
         ) : (
           <>
             {ringcentralStatus?.connected && (
-              <p className="calendar-status-connected">
-                <span aria-hidden="true">✓</span> Connected
-                {ringcentralStatus.account_email ? ` (${ringcentralStatus.account_email})` : ''}
-              </p>
+              ringcentralStatus.healthy === false ? (
+                <p className="calendar-status-stale">
+                  <span aria-hidden="true">⚠</span> Reconnect needed
+                  {ringcentralStatus.account_email ? ` (${ringcentralStatus.account_email})` : ''} - RingCentral
+                  rejected the stored connection. Interviews will use your personal meeting link
+                  above until you reconnect.
+                </p>
+              ) : (
+                <p className="calendar-status-connected">
+                  <span aria-hidden="true">✓</span> Connected
+                  {ringcentralStatus.account_email ? ` (${ringcentralStatus.account_email})` : ''}
+                </p>
+              )
             )}
             <div className="page-header-actions">
               {ringcentralStatus?.connected ? (
                 <>
                   <button type="button" className="button-secondary" onClick={handleConnectRingcentral}>
-                    Reauthorize RingCentral
+                    {ringcentralStatus.healthy === false ? 'Reconnect RingCentral' : 'Reauthorize RingCentral'}
                   </button>
                   <button
                     type="button"

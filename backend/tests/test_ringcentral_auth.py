@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import routes.ringcentral_auth as ringcentral_auth
-from ringcentral_video import decrypt_token
+import ringcentral_video
+from ringcentral_video import RingCentralTokenError, decrypt_token, encrypt_token
 from models import RingCentralConnection, db
 
 
@@ -149,15 +150,61 @@ def test_disconnect_404s_with_no_existing_connection(client, auth_headers):
     assert resp.status_code == 404
 
 
-def test_status_reports_connected_state(app, client, auth_headers, user):
+def test_status_reports_not_connected_with_no_connection_row(client, auth_headers):
     resp = client.get('/api/auth/ringcentral/status', headers=auth_headers)
     assert resp.get_json() == {"connected": False}
 
+
+def test_status_reports_healthy_when_the_token_refreshes_fine(app, client, auth_headers, user, monkeypatch):
+    monkeypatch.setattr(
+        ringcentral_video, '_refresh_access_token',
+        lambda refresh_token: {'access_token': 'fresh-token', 'expires_in': 3600},
+    )
     with app.app_context():
         db.session.add(RingCentralConnection(
-            user_id=user.id, account_email='interviewer@rc.com', encrypted_refresh_token='enc',
+            user_id=user.id, account_email='interviewer@rc.com',
+            encrypted_refresh_token=encrypt_token('refresh-456'),
         ))
         db.session.commit()
 
     resp = client.get('/api/auth/ringcentral/status', headers=auth_headers)
-    assert resp.get_json() == {"connected": True, "account_email": "interviewer@rc.com"}
+    assert resp.get_json() == {"connected": True, "account_email": "interviewer@rc.com", "healthy": True}
+
+
+def test_status_reports_unhealthy_when_ringcentral_rejects_the_refresh(app, client, auth_headers, user, monkeypatch):
+    """The actual scenario this exists for: a stale (~7-day-old) or revoked
+    refresh token - booking still falls back silently (routes/apply.py's
+    _create_ringcentral_meeting_or_fallback), but the Profile page should
+    say so rather than keep claiming "Connected"."""
+    def _rejected(refresh_token):
+        raise RingCentralTokenError('RingCentral token refresh failed (400): invalid_grant')
+    monkeypatch.setattr(ringcentral_video, '_refresh_access_token', _rejected)
+
+    with app.app_context():
+        db.session.add(RingCentralConnection(
+            user_id=user.id, account_email='interviewer@rc.com',
+            encrypted_refresh_token=encrypt_token('refresh-456'),
+        ))
+        db.session.commit()
+
+    resp = client.get('/api/auth/ringcentral/status', headers=auth_headers)
+    assert resp.get_json() == {"connected": True, "account_email": "interviewer@rc.com", "healthy": False}
+
+
+def test_status_does_not_check_when_the_cached_token_is_still_valid(app, client, auth_headers, user, monkeypatch):
+    """No refresh attempted at all when the cached access token hasn't
+    expired yet - most Profile-page views should be free, not an API call."""
+    def _fail_if_called(refresh_token):
+        raise AssertionError('should not refresh when the cached token is still valid')
+    monkeypatch.setattr(ringcentral_video, '_refresh_access_token', _fail_if_called)
+
+    with app.app_context():
+        db.session.add(RingCentralConnection(
+            user_id=user.id, account_email='interviewer@rc.com',
+            encrypted_refresh_token=encrypt_token('refresh-456'),
+            access_token='still-good', token_expiry=datetime.utcnow() + timedelta(minutes=30),
+        ))
+        db.session.commit()
+
+    resp = client.get('/api/auth/ringcentral/status', headers=auth_headers)
+    assert resp.get_json()['healthy'] is True

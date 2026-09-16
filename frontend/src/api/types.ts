@@ -37,13 +37,20 @@ export interface MicrosoftCalendarStatus {
   account_email?: string
 }
 
-// Same shape, for the RingCentral connection (ringcentral_video.py /
+// For the RingCentral connection (ringcentral_video.py /
 // routes/ringcentral_auth.py) that lets a real per-interview meeting be
 // created instead of an interviewer's static personal_meeting_link, so its
-// recording can later be matched back to the right candidate.
+// recording can later be matched back to the right candidate. Unlike
+// MicrosoftCalendarStatus above, `connected` alone doesn't mean the
+// connection still works - RingCentral's refresh tokens are short-lived
+// and rotate on every use, so a connection can go stale silently.
+// `healthy` actually attempts a token refresh server-side; false means
+// RingCentral explicitly rejected it (reconnecting is the fix) - absent
+// when `connected` is false (nothing to check).
 export interface RingCentralStatus {
   connected: boolean
   account_email?: string
+  healthy?: boolean
 }
 
 // This single-tenant app's one Organization row - name plus whether a

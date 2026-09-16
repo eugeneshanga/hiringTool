@@ -322,6 +322,28 @@ def test_submit_falls_back_to_the_static_link_when_ringcentral_unavailable(
         assert interview.meeting_link == RINGCENTRAL_LINK
 
 
+def test_submit_logs_a_warning_when_the_ringcentral_connection_is_stale(
+    app, client, applied_candidate, schedulable_stage, monkeypatch, caplog,
+):
+    """A previously-working connection that's gone stale (RingCentralTokenError)
+    is worth a log line, unlike the plain "never connected" case above -
+    booking still falls back and succeeds either way."""
+    from ringcentral_video import RingCentralTokenError
+
+    def _stale(user, topic):
+        raise RingCentralTokenError('RingCentral token refresh failed (400): invalid_grant')
+    monkeypatch.setattr(apply_module, 'create_meeting', _stale)
+    monkeypatch.setattr(apply_module, 'get_free_slots', lambda *a, **k: [(FAR_FUTURE, FAR_FUTURE + timedelta(minutes=20))])
+    monkeypatch.setattr(apply_module, 'create_event', lambda *a, **k: 'ms-event-1')
+
+    with caplog.at_level('WARNING'):
+        resp = client.post(f'/api/apply/{applied_candidate.application_token}/submit', json=_submit_payload())
+
+    assert resp.status_code == 201
+    assert resp.get_json()['meeting_link'] == RINGCENTRAL_LINK
+    assert any('appears stale' in r.message for r in caplog.records)
+
+
 def test_submit_db_failure_after_booking_cleans_up_the_calendar_event(
     app, client, applied_candidate, schedulable_stage, monkeypatch,
 ):

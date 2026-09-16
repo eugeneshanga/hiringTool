@@ -1718,6 +1718,15 @@ button:disabled {
   font-weight: 600;
 }
 
+/* A connection that exists but whose stored credentials have gone stale
+   (RingCentralStatus.healthy === false) - distinct from both "connected"
+   (green) and no connection at all (no badge shown), since silently
+   reading as still-connected is exactly the problem this exists to avoid. */
+.calendar-status-stale {
+  color: #a15c00;
+  font-weight: 600;
+}
+
 /* CandidateStageProgress.VALID_STATUSES - see StageTabs.tsx's
    statusBadgeClass for how a status turns into one of these class names. */
 .status-yes,

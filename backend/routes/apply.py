@@ -423,13 +423,31 @@ def _create_ringcentral_meeting_or_fallback(interviewer, topic, fallback_link):
     available. Returns (ringcentral_meeting_id, meeting_link) - the id is
     None whenever the fallback was used, and Interview.ringcentral_meeting_id
     should be set to it either way (null is a valid, meaningful value
-    there, not a bug)."""
+    there, not a bug).
+
+    Logs a warning for the two failure modes actually worth someone
+    noticing - a stale/revoked connection, or RingCentral being briefly
+    unreachable - but stays silent for the plain "never connected" case,
+    which is just a normal, not-yet-set-up state, not a problem. See also
+    routes/ringcentral_auth.py's ringcentral_status, which surfaces the
+    same staleness proactively on the Profile page rather than only in
+    the logs at booking time."""
     try:
         meeting_id, join_url = create_meeting(interviewer, topic)
         if join_url:
             return meeting_id, join_url
-    except (RingCentralNotConnectedError, RingCentralTokenError, requests.RequestException):
+    except RingCentralNotConnectedError:
         pass
+    except RingCentralTokenError:
+        current_app.logger.warning(
+            "RingCentral connection for interviewer %s appears stale (token refresh was "
+            "rejected) - falling back to their static meeting link", interviewer.id,
+        )
+    except requests.RequestException:
+        current_app.logger.warning(
+            "RingCentral was unreachable while creating a meeting for interviewer %s - "
+            "falling back to their static meeting link", interviewer.id,
+        )
     except Exception:
         current_app.logger.exception(
             "Unexpected error creating RingCentral meeting for interviewer %s", interviewer.id
