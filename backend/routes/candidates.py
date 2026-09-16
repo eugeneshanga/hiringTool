@@ -80,7 +80,9 @@ def _reject_if_too_large(file, max_size_bytes):
 @candidates_bp.route('/api/candidates', methods=['GET'])
 @jwt_required()
 def get_candidates():
-    query = Candidate.query
+    # Newest applicant first (a "stack": last in is on top) rather than the
+    # DB's default insertion order, which put the oldest candidate on top.
+    query = Candidate.query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 
     search = request.args.get('search')
     if search:
@@ -406,6 +408,8 @@ def update_stage_progress(candidate_id, template_id):
             candidate.stage = 'Rejected'
             if not candidate.disqualified_at:
                 candidate.disqualified_at = datetime.utcnow()
+    if 'location' in data:
+        progress.location = data['location']
     if 'scheduled_at' in data:
         raw = data['scheduled_at']
         if raw:
@@ -414,12 +418,15 @@ def update_stage_progress(candidate_id, template_id):
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             progress.reset_reminders()
-            _notify_interviewer_scheduled(template, candidate, candidate.job, progress.scheduled_at)
+            # Applied above (in this same request, if present) so a
+            # scheduled_at+location combo sent together reaches the
+            # interviewer with the new link, not whatever was there before.
+            _notify_interviewer_scheduled(
+                template, candidate, candidate.job, progress.scheduled_at, meeting_link=progress.location,
+            )
         else:
             progress.scheduled_at = None
             progress.reset_reminders()
-    if 'location' in data:
-        progress.location = data['location']
     if 'notes' in data:
         progress.notes = data['notes']
     if 'cancellation_reason' in data:
@@ -684,6 +691,7 @@ def book_stage_slot(candidate_id, template_id):
         send_interviewer_scheduled_email(
             to_email=interviewer.email, interviewer_name=interviewer.name, candidate_name=candidate.name,
             job_title=candidate.job.title, stage_name=template.stage_name, scheduled_start=slot_start,
+            meeting_link=meeting_link,
         )
     except Exception:
         current_app.logger.exception("Failed to send interviewer scheduled-notice email for candidate %s", candidate.id)
