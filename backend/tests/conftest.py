@@ -34,6 +34,12 @@ def app():
             # Individual tests override this back to 'postmark' when that's
             # what they're testing.
             'EMAIL_PROVIDER': 'console',
+            # Same isolation, for reCAPTCHA: whatever RECAPTCHA_SECRET_KEY is
+            # actually set to in the developer's real database.env must not
+            # leak in here and start requiring a recaptcha_token on every
+            # login test. test_auth.py's recaptcha_app fixture turns it back
+            # on for the handful of tests that specifically cover it.
+            'RECAPTCHA_SECRET_KEY': None,
         })
         with flask_app.app_context():
             db.create_all()

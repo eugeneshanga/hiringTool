@@ -10,7 +10,7 @@ interface AuthContextValue {
   // "please sign in again" message while this is set, distinguishing it
   // from landing there fresh/by choice. Cleared on the next successful login.
   sessionExpired: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string, recaptchaToken: string | null) => Promise<void>
   logout: () => void
   updateUser: (user: User) => void
 }
@@ -48,8 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null)
   }, [])
 
-  async function login(email: string, password: string) {
-    const { access_token, user } = await api.login(email, password)
+  async function login(email: string, password: string, recaptchaToken: string | null) {
+    const { access_token, user } = await api.login(email, password, recaptchaToken)
     setToken(access_token)
     setUser(user)
     setSessionExpired(false)

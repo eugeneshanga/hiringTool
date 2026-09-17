@@ -61,6 +61,17 @@ class Config:
     RINGCENTRAL_CLIENT_SECRET = os.environ.get('RINGCENTRAL_CLIENT_SECRET')
     RINGCENTRAL_REDIRECT_URI = os.environ.get('RINGCENTRAL_REDIRECT_URI')
 
+    # Google reCAPTCHA v2 ("I'm not a robot" checkbox) on the recruiter
+    # login form (routes/auth.py, LoginPage.tsx) - from
+    # google.com/recaptcha/admin. Only the secret is needed here: the site
+    # key is public by design (embedded in the built frontend via Vite's
+    # VITE_RECAPTCHA_SITE_KEY, not read from this backend config at all).
+    # Left unset, login skips the check entirely (recaptcha.py's
+    # verify_recaptcha is never called) - true in local dev/tests unless
+    # this is explicitly set, same "unconfigured = feature no-ops" pattern
+    # as the calendar integrations above.
+    RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY')
+
     # Fernet key encrypting CalendarConnection.refresh_token at rest.
     CALENDAR_ENCRYPTION_KEY = os.environ.get('CALENDAR_ENCRYPTION_KEY')
 
@@ -138,7 +149,12 @@ class Config:
     CONTENT_SECURITY_POLICY = os.environ.get(
         'CONTENT_SECURITY_POLICY',
         "default-src 'self'; "
-        "script-src 'self'; "
+        # www.google.com/www.gstatic.com - the reCAPTCHA widget on the login
+        # page (LoginPage.tsx): api.js itself, and the challenge iframe it
+        # renders (frame-src below). Only reachable at all once
+        # VITE_RECAPTCHA_SITE_KEY is set at build time - otherwise the
+        # widget never mounts and these hosts are simply never contacted.
+        "script-src 'self' https://www.google.com https://www.gstatic.com; "
         "style-src 'self'; "
         # blob: - the org logo/banner is fetched via JS (it's behind auth)
         # and shown as <img src> from a blob: object URL (UserMenu.tsx,
@@ -148,7 +164,13 @@ class Config:
         # reopen anything the upload hardening closed.
         "img-src 'self' data: blob:; "
         "font-src 'self'; "
-        "connect-src 'self'; "
+        # https://www.google.com - reCAPTCHA's own script makes background
+        # requests beyond the initial script-src load (seen live: the
+        # browser reported api.js itself falling through to default-src for
+        # one of these, meaning it wasn't a plain script-src-elem load) -
+        # widened here too rather than leaving it to fall back.
+        "connect-src 'self' https://www.google.com; "
+        "frame-src https://www.google.com; "
         "object-src 'none'; "
         "base-uri 'self'; "
         "form-action 'self'; "
