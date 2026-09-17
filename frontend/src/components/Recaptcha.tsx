@@ -106,5 +106,9 @@ export const Recaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(function Re
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return <div ref={containerRef} />
+  // The container itself stretches full-width as a flex column child
+  // (LoginPage's .login-card), but the compact widget it renders (164px)
+  // is narrower than that - center it rather than leaving it flush left
+  // while every other field spans the full width.
+  return <div ref={containerRef} style={{ display: 'flex', justifyContent: 'center' }} />
 })

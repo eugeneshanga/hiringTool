@@ -462,7 +462,19 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 2rem;
-  width: 320px;
+  /* Wide enough for the reCAPTCHA widget below (a fixed 304px) plus some
+     breathing room on either side of it - 320px left only ~256px of
+     content width after this padding, narrower than the widget itself. */
+  width: 400px;
+  /* Clamps the card itself on a narrow (phone-width) screen instead of
+     forcing page-level horizontal scroll. Note this doesn't fully solve
+     narrow-phone widths for the reCAPTCHA widget specifically - it's a
+     fixed 304px regardless of container size, so on a genuinely narrow
+     phone (~360px or less) it can still be slightly wider than the
+     card's own content column. Common, minor, and not attempted here
+     (would need Google's narrower 'compact' size on small screens) since
+     this page is realistically desktop-first (recruiter/admin login). */
+  max-width: calc(100vw - 2rem);
   display: flex;
   flex-direction: column;
   gap: 1rem;
