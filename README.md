@@ -133,7 +133,18 @@ DirectAdmin's Git integration doesn't support this deployment's subdomain).
 - `FORCE_HTTPS` — unset/`false` by default (local dev has no TLS to redirect
   to). Set to `true` only in production, once HTTPS is confirmed reachable
   there — see DEPLOYMENT.md.
-- `frontend/.env` — `VITE_API_URL`, the backend's address.
+- `database.env` also holds `RECAPTCHA_SECRET_KEY` for the recruiter login's
+  Google reCAPTCHA v2 checkbox (`recaptcha.py`, from
+  [google.com/recaptcha/admin](https://www.google.com/recaptcha/admin) —
+  register both `localhost` and the production domain under one site key).
+  Left unset, login skips the check entirely — true for local dev by
+  default. The matching public site key isn't backend config at all; see
+  `frontend/.env` below.
+- `frontend/.env` — `VITE_API_URL` (the backend's address) and
+  `VITE_RECAPTCHA_SITE_KEY` (baked into the built JS at compile time, same
+  build for both local dev and the production deploy zip — safe to be
+  public, unlike the secret key above). Leaving it unset just means the
+  checkbox never renders and login proceeds without one.
 
 Neither file is committed (see `.gitignore`); both have `.example`-style
 defaults documented above.
@@ -145,6 +156,12 @@ defaults documented above.
   admin via `flask create-user --role`. Org settings and user management are
   admin-only (`auth_helpers.admin_required`); jobs/candidates/interviews
   don't yet differentiate recruiter vs. interviewer — see Known gaps.
+  `POST /api/auth/login` also requires a Google reCAPTCHA v2 ("I'm not a
+  robot" checkbox) solve, verified server-side (`recaptcha.py`) against
+  Google before the credential check even runs — but only when
+  `RECAPTCHA_SECRET_KEY` is configured; unset (the local-dev default), it's
+  a no-op and the checkbox never even renders (`LoginPage.tsx` checks for
+  `VITE_RECAPTCHA_SITE_KEY`).
 - **Public careers site** (`/`, `routes/public.py`) — an unauthenticated
   landing page listing every Published job (org name/logo, title, pipe-
   separated type/location/salary, an in-place "Show Details" accordion, and
@@ -181,7 +198,8 @@ defaults documented above.
   duration to get real Microsoft Calendar availability wired into its
   scheduling instead of (or alongside) the plain session/capacity system.
 - **Candidates** — pipeline stage (Applied → Interview → Offer → Hired /
-  Rejected), search/filtering/CSV export, and a full candidate detail page:
+  Rejected), listed newest-applicant-first, search/filtering/CSV export
+  (following that same order), and a full candidate detail page:
   contact info, resume upload, per-stage scheduling + a status dropdown
   (`Upcoming`, `Yes`, `Yes - Awaiting information`, `Yes - Information
   received`, `No`, `Maybe`, `Hired`, `No show`, `No response`, `Needs
@@ -213,7 +231,10 @@ defaults documented above.
   nothing's broken, that stage just isn't wired up for it. Native Outlook
   calendar reminders weren't used for this - a Graph calendar event only
   supports one reminder time, not three, so all of this runs as ordinary
-  app-sent email instead.
+  app-sent email instead. Every scheduled-notice/reminder email also
+  carries the actual meeting link - the same real RingCentral meeting (or
+  the interviewer's static fallback) the candidate's own confirmation email
+  gets, not just the date/time.
 - **Home / Upcoming** — scheduled interview sessions (1:1 or capacity-limited
   group sessions like an orientation), with enroll/unenroll per candidate.
   Enrolling a candidate automatically advances their stage to "Interview"
@@ -255,12 +276,16 @@ defaults documented above.
   columns) - no frontend change needed for it to show up. Falls back
   silently to the interviewer's static link at every step when they haven't
   connected RingCentral, or RingCentral is unreachable, same fail-safe
-  posture as the rest of this app's optional integrations. Two things worth
-  knowing: RingCentral's own docs mark this Video REST API as **beta** (no
-  backwards-compatibility guarantee), and RingCentral refresh tokens are
-  short-lived (~7 days, rotating on every use) unlike Microsoft's - an
-  interviewer who goes quiet for over a week can end up needing to
-  reconnect from their Profile page.
+  posture as the rest of this app's optional integrations. Because those
+  short-lived refresh tokens (see below) can go stale silently, `GET
+  .../status` doesn't just report `connected` - it attempts a real token
+  refresh and reports `healthy` too, so the Profile page can show "⚠
+  Reconnect needed" instead of a `Connected` label that's quietly stopped
+  being true. Two things worth knowing: RingCentral's own docs mark this
+  Video REST API as **beta** (no backwards-compatibility guarantee), and
+  RingCentral refresh tokens are short-lived (~7 days, rotating on every
+  use) unlike Microsoft's - an interviewer who goes quiet for over a week
+  can end up needing to reconnect from their Profile page.
 
 ## Known gaps
 
@@ -276,8 +301,9 @@ defaults documented above.
   on yet. (Low risk while auth is a `localStorage` bearer token rather than
   a cookie — a foreign origin can't attach it — but should still be scoped.)
 - No multi-factor auth on the recruiter login — a working password is the
-  only factor. Rate limiting slows brute force; phishing/reuse is unmitigated.
-  Biggest remaining login-hardening gap.
+  only factor. Rate limiting plus reCAPTCHA slow down brute force/automated
+  guessing specifically; neither is a second factor, so phishing/credential
+  reuse is still unmitigated. Biggest remaining login-hardening gap.
 - ~~Uploaded files aren't type/size checked~~ — fixed: `upload_validation.py`
   gates every résumé/onboarding-document upload (public and recruiter) on an
   extension allowlist + magic-byte content check + size cap, and downloads go
