@@ -76,10 +76,10 @@ export function openBlob(blob: Blob) {
 }
 
 export const api = {
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, recaptchaToken: string | null) =>
     request<{ access_token: string; user: User }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, recaptcha_token: recaptchaToken }),
     }),
 
   me: () => request<User>('/api/auth/me'),
