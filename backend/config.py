@@ -164,7 +164,12 @@ class Config:
         # reopen anything the upload hardening closed.
         "img-src 'self' data: blob:; "
         "font-src 'self'; "
-        "connect-src 'self'; "
+        # https://www.google.com - reCAPTCHA's own script makes background
+        # requests beyond the initial script-src load (seen live: the
+        # browser reported api.js itself falling through to default-src for
+        # one of these, meaning it wasn't a plain script-src-elem load) -
+        # widened here too rather than leaving it to fall back.
+        "connect-src 'self' https://www.google.com; "
         "frame-src https://www.google.com; "
         "object-src 'none'; "
         "base-uri 'self'; "

@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 declare global {
   interface Window {
     grecaptcha?: {
+      ready: (callback: () => void) => void
       render: (
         container: HTMLElement,
         params: { sitekey: string; callback: (token: string) => void; 'expired-callback': () => void },
@@ -33,6 +34,19 @@ function loadScript(): Promise<void> {
     })
   }
   return scriptLoadPromise
+}
+
+// The <script> tag's own onload firing only means api.js finished
+// downloading - grecaptcha's actual API (specifically .render) isn't
+// guaranteed ready until grecaptcha.ready() says so. Calling .render()
+// straight off the script's onload is a real, well-known race (usually
+// works, sometimes silently doesn't) - this is why Google's own docs
+// recommend ready() rather than the script's onload for anything beyond
+// the auto-render (data-sitekey div) path.
+function whenGrecaptchaReady(): Promise<void> {
+  return loadScript().then(
+    () => new Promise((resolve) => window.grecaptcha!.ready(() => resolve())),
+  )
 }
 
 export interface RecaptchaHandle {
@@ -68,7 +82,7 @@ export const Recaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(function Re
 
   useEffect(() => {
     let cancelled = false
-    loadScript()
+    whenGrecaptchaReady()
       .then(() => {
         if (cancelled || !containerRef.current || widgetIdRef.current !== null) return
         widgetIdRef.current = window.grecaptcha!.render(containerRef.current, {
@@ -77,11 +91,14 @@ export const Recaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(function Re
           'expired-callback': () => onChange(null),
         })
       })
-      .catch(() => {
-        // Fails open on the frontend - LoginPage still requires a token
-        // before enabling submit, so a candidate/recruiter just can't log
-        // in if Google's script is unreachable (rare, and consistent with
-        // the backend's own fail-closed verification below).
+      .catch((err) => {
+        // LoginPage still requires a token before enabling submit, so a
+        // recruiter just can't log in if this fails (rare - Google
+        // unreachable, or a real bug here) - consistent with the backend's
+        // own fail-closed verification. Logged rather than swallowed so
+        // that failure is actually visible in DevTools instead of just
+        // "the checkbox never showed up, no idea why".
+        console.error('reCAPTCHA failed to load/render', err)
       })
     return () => {
       cancelled = true
